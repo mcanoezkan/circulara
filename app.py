@@ -469,6 +469,27 @@ st.markdown(
   }
   header[data-testid="stHeader"] { display: block; z-index: 1500; background: transparent; }
   [data-testid="stAppViewContainer"] > .main { padding-top: 24px; }
+  div[data-testid="stStatusWidget"] { display: none !important; }
+  div[data-testid="stSpinner"] { display: none !important; }
+  .js-plotly-plot .plotly .loading,
+  .js-plotly-plot .plotly .loading-text,
+  .js-plotly-plot .plotly .plotly-loading {
+    display: none !important;
+  }
+  .dim-icon {
+    width:44px;
+    height:44px;
+    border-radius:14px;
+    background: rgba(15,23,42,0.04);
+    border: 1px solid rgba(15,23,42,0.08);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .dim-icon svg {
+    width: 22px;
+    height: 22px;
+  }
 </style>
 """,
     unsafe_allow_html=True,
@@ -1615,8 +1636,15 @@ def render_results():
                 color_continuous_scale=scale,
             )
             dist_chart.update_traces(textposition="outside")
-        dist_chart.update_layout(height=280, coloraxis_showscale=False, xaxis_title="Score", yaxis_title="Anzahl")
-        st.plotly_chart(dist_chart, use_container_width=True)
+            dist_chart.update_layout(
+                height=280,
+                coloraxis_showscale=False,
+                xaxis_title="Score",
+                yaxis_title="Anzahl",
+            )
+            st.plotly_chart(dist_chart, use_container_width=True)
+        else:
+            st.info("Noch keine bewerteten Leitfragen vorhanden.")
 
         def format_question_table(df: pd.DataFrame) -> pd.DataFrame:
             display = df.copy()
