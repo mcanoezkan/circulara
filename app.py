@@ -613,16 +613,20 @@ def _select_answer(theme: str, indicator: str, code: str, score_value):
     st.session_state.scroll_target = f"q-{code}"
 
 
+def _set_scroll_to_progress_top():
+    st.session_state.scroll_target = "progress-top"
+
+
 def _open_dimension(theme_index: int):
     st.session_state.current_page = "assessment"
     st.session_state.current_theme = theme_index
     st.session_state.current_indicator = 0
-    st.session_state.scroll_target = "top"
+    _set_scroll_to_progress_top()
 
 
 def _select_indicator(indicator_index: int):
     st.session_state.current_indicator = indicator_index
-    st.session_state.scroll_target = "top"
+    _set_scroll_to_progress_top()
 
 
 def _go_prev_indicator_or_theme():
@@ -633,7 +637,7 @@ def _go_prev_indicator_or_theme():
         st.session_state.current_theme -= 1
         prev_theme = themes[st.session_state.current_theme]
         st.session_state.current_indicator = len(list(CIRCULAR_MODEL[prev_theme].keys())) - 1
-    st.session_state.scroll_target = "top"
+    _set_scroll_to_progress_top()
 
 
 def _go_next_indicator_or_theme():
@@ -644,7 +648,7 @@ def _go_next_indicator_or_theme():
     else:
         st.session_state.current_theme += 1
         st.session_state.current_indicator = 0
-    st.session_state.scroll_target = "top"
+    _set_scroll_to_progress_top()
 
 
 def _show_results():
@@ -954,10 +958,42 @@ def render_assessment():
     if st.session_state.scroll_target:
         target = st.session_state.scroll_target
         if target == "top":
-            components.html("<script>window.scrollTo({top:0,behavior:'smooth'});</script>", height=0, width=0)
+            components.html(
+                """
+                <script>
+                  const doScroll = () => {
+                    if (window.parent) {
+                      window.parent.scrollTo({top:0, behavior:'smooth'});
+                    } else {
+                      window.scrollTo({top:0, behavior:'smooth'});
+                    }
+                  };
+                  requestAnimationFrame(doScroll);
+                </script>
+                """,
+                height=0,
+                width=0,
+            )
         else:
             components.html(
-                f"<script>document.getElementById('{target}')?.scrollIntoView({{behavior:'smooth', block:'start'}});</script>",
+                f"""
+                <script>
+                  const targetId = "{target}";
+                  const getDoc = () => (window.parent ? window.parent.document : document);
+                  const doScroll = () => {{
+                    const doc = getDoc();
+                    const el = doc.getElementById(targetId);
+                    if (el && el.scrollIntoView) {{
+                      el.scrollIntoView({{behavior:'smooth', block:'start'}});
+                      return true;
+                    }}
+                    return false;
+                  }};
+                  if (!doScroll()) {{
+                    setTimeout(doScroll, 200);
+                  }}
+                </script>
+                """,
                 height=0,
                 width=0,
             )
@@ -978,6 +1014,7 @@ def render_assessment():
 
     pct = 0 if total_questions == 0 else int((answered_count / total_questions) * 100)
 
+    st.markdown("<div id='progress-top'></div>", unsafe_allow_html=True)
     with st.container(key="topbar"):
         st.markdown(
             f"""
@@ -1095,6 +1132,7 @@ def render_assessment():
                 return f"{parts[0]} — {parts[1]}"
             return ind_name
 
+        st.markdown("<div id='indicator-top'></div>", unsafe_allow_html=True)
         st.markdown("### Indikatoren")
         with st.expander("Indikatorauswahl", expanded=True):
             st.markdown("<div class='indicator-acc'>", unsafe_allow_html=True)
