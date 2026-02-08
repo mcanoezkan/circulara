@@ -13,6 +13,7 @@ import json
 import textwrap
 import plotly.graph_objects as go
 import plotly.express as px
+from typing import Optional
 from datetime import datetime
 from pathlib import Path
 
@@ -582,6 +583,75 @@ def load_assessment_history_local():
 
 
 # ============================================================================
+# HELPER FUNCTIONS - UI STATE UPDATES
+# ============================================================================
+
+def _ensure_answer_state(theme: str, indicator: str):
+    if theme not in st.session_state.theme_answers:
+        st.session_state.theme_answers[theme] = {}
+    if indicator not in st.session_state.theme_answers[theme]:
+        st.session_state.theme_answers[theme][indicator] = {}
+
+
+def _set_scroll_target(target: Optional[str]):
+    st.session_state.scroll_target = target
+
+
+def _set_current_page(page: str):
+    st.session_state.current_page = page
+
+
+def _start_assessment():
+    st.session_state.current_page = "assessment"
+    st.session_state.assessment_started = True
+    st.session_state.scroll_target = "top"
+
+
+def _select_answer(theme: str, indicator: str, code: str, score_value):
+    _ensure_answer_state(theme, indicator)
+    st.session_state.theme_answers[theme][indicator][code] = score_value
+    st.session_state.scroll_target = f"q-{code}"
+
+
+def _open_dimension(theme_index: int):
+    st.session_state.current_page = "assessment"
+    st.session_state.current_theme = theme_index
+    st.session_state.current_indicator = 0
+    st.session_state.scroll_target = "top"
+
+
+def _select_indicator(indicator_index: int):
+    st.session_state.current_indicator = indicator_index
+    st.session_state.scroll_target = "top"
+
+
+def _go_prev_indicator_or_theme():
+    themes = list(CIRCULAR_MODEL.keys())
+    if st.session_state.current_indicator > 0:
+        st.session_state.current_indicator -= 1
+    else:
+        st.session_state.current_theme -= 1
+        prev_theme = themes[st.session_state.current_theme]
+        st.session_state.current_indicator = len(list(CIRCULAR_MODEL[prev_theme].keys())) - 1
+    st.session_state.scroll_target = "top"
+
+
+def _go_next_indicator_or_theme():
+    themes = list(CIRCULAR_MODEL.keys())
+    indicators = list(CIRCULAR_MODEL[themes[st.session_state.current_theme]].keys())
+    if st.session_state.current_indicator < len(indicators) - 1:
+        st.session_state.current_indicator += 1
+    else:
+        st.session_state.current_theme += 1
+        st.session_state.current_indicator = 0
+    st.session_state.scroll_target = "top"
+
+
+def _show_results():
+    st.session_state.current_page = "results"
+
+
+# ============================================================================
 # SIDEBAR
 # ============================================================================
 
@@ -621,14 +691,14 @@ with st.sidebar:
     ]
     for label, page in nav_items:
         is_active = st.session_state.current_page == page
-        if st.button(
+        st.button(
             label,
             key=f"nav_{page}",
             use_container_width=True,
             type="primary" if is_active else "secondary",
-        ):
-            st.session_state.current_page = page
-            st.rerun()
+            on_click=_set_current_page,
+            args=(page,),
+        )
 
     st.markdown("---")
 
@@ -862,10 +932,12 @@ def render_welcome():
             unsafe_allow_html=True,
         )
     st.markdown("</div>", unsafe_allow_html=True)
-    if st.button("Assessment starten", use_container_width=True, type="primary"):
-        st.session_state.current_page = "assessment"
-        st.session_state.assessment_started = True
-        st.rerun()
+    st.button(
+        "Assessment starten",
+        use_container_width=True,
+        type="primary",
+        on_click=_start_assessment,
+    )
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -993,11 +1065,13 @@ def render_assessment():
                     unsafe_allow_html=True,
                 )
                 st.markdown("<div class='dim-arrow-in'>", unsafe_allow_html=True)
-                if st.button("Dimension öffnen", key=f"arrow_theme_{idx}", use_container_width=True):
-                    st.session_state.current_page = "assessment"
-                    st.session_state.current_theme = idx
-                    st.session_state.current_indicator = 0
-                    st.rerun()
+                st.button(
+                    "Dimension öffnen",
+                    key=f"arrow_theme_{idx}",
+                    use_container_width=True,
+                    on_click=_open_dimension,
+                    args=(idx,),
+                )
                 st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------------- RIGHT: INDICATORS TOP + QUESTIONS ----------------
@@ -1032,14 +1106,14 @@ def render_assessment():
                         unsafe_allow_html=True,
                     )
                 with st.container(key=f"indicator-btn-{i}"):
-                    if st.button(
+                    st.button(
                         fmt_indicator(name),
                         key=f"indicator_btn_{current_theme}_{i}",
                         use_container_width=True,
                         type="secondary",
-                    ):
-                        st.session_state.current_indicator = i
-                        st.rerun()
+                        on_click=_select_indicator,
+                        args=(i,),
+                    )
             st.markdown("</div>", unsafe_allow_html=True)
         current_indicator = indicators[min(st.session_state.current_indicator, len(indicators) - 1)]
 
@@ -1090,20 +1164,15 @@ def render_assessment():
 
                 for label in display_labels:
                     is_selected = label == selected_label
-                    if st.button(
+                    score_value = None if label == "Keine Auswahl" else display_to_score.get(label, 0.0)
+                    st.button(
                         label,
                         key=f"q_{current_theme}_{current_indicator}_{code}_{label}",
                         use_container_width=True,
                         type="primary" if is_selected else "secondary",
-                    ):
-                        if label == "Keine Auswahl":
-                            st.session_state.theme_answers[current_theme][current_indicator][code] = None
-                        else:
-                            st.session_state.theme_answers[current_theme][current_indicator][code] = display_to_score.get(
-                                label, 0.0
-                            )
-                        st.session_state.scroll_target = f"q-{code}"
-                        st.rerun()
+                        on_click=_select_answer,
+                        args=(current_theme, current_indicator, code, score_value),
+                    )
 
     st.divider()
 
@@ -1116,29 +1185,13 @@ def render_assessment():
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         if st.session_state.current_indicator > 0 or st.session_state.current_theme > 0:
-            if st.button("◀ Zurück", use_container_width=True):
-                if st.session_state.current_indicator > 0:
-                    st.session_state.current_indicator -= 1
-                else:
-                    st.session_state.current_theme -= 1
-                    prev_theme = themes[st.session_state.current_theme]
-                    st.session_state.current_indicator = len(list(CIRCULAR_MODEL[prev_theme].keys())) - 1
-                st.rerun()
+            st.button("◀ Zurück", use_container_width=True, on_click=_go_prev_indicator_or_theme)
 
     with col3:
         if is_last:
-            if st.button("Ergebnisse anzeigen ▶", use_container_width=True, type="primary"):
-                st.session_state.current_page = "results"
-                st.rerun()
+            st.button("Ergebnisse anzeigen ▶", use_container_width=True, type="primary", on_click=_show_results)
         else:
-            if st.button("Weiter ▶", use_container_width=True):
-                if st.session_state.current_indicator < len(indicators) - 1:
-                    st.session_state.current_indicator += 1
-                else:
-                    st.session_state.current_theme += 1
-                    st.session_state.current_indicator = 0
-                st.session_state.scroll_target = "top"
-                st.rerun()
+            st.button("Weiter ▶", use_container_width=True, on_click=_go_next_indicator_or_theme)
 
 
 # ============================================================================
