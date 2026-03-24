@@ -10,6 +10,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import json
+import html
 import textwrap
 import plotly.graph_objects as go
 import plotly.express as px
@@ -20,6 +21,7 @@ from pathlib import Path
 from config import (
     CIRCULAR_MODEL,
     DEFAULT_WEIGHTS,
+    INDICATOR_RECOMMENDATIONS,
     MATURITY_LEVELS,
 )
 
@@ -40,6 +42,14 @@ THEME_UI = {
     "Wirtschaftlichkeit": {"bg": "#FFF6E8", "bg2": "#FFFBF3", "accent": "#B7791F", "pill": "#FFE9C8"},
     "Regulatorik": {"bg": "#F3EEFF", "bg2": "#FAF7FF", "accent": "#6B46C1", "pill": "#E8DEFF"},
     "Systemische Befähiger": {"bg": "#FFF0F5", "bg2": "#FFF7FB", "accent": "#C026D3", "pill": "#FAD5E8"},
+}
+
+THEME_SUMMARIES = {
+    "Design": "Produktseitige Voraussetzungen wie Demontage, Materialprofil und Aufbereitbarkeit.",
+    "Strategie": "Markt, Organisation und Entscheidungslogik für zirkuläre Geschäftsmodelle.",
+    "Wirtschaftlichkeit": "Preisniveau, Werterhalt und wirtschaftliche Tragfähigkeit der Aufbereitung.",
+    "Regulatorik": "Rechtliche Wiederverwendung, Kennzeichnung und Daten- bzw. Rechte-Compliance.",
+    "Systemische Befähiger": "Daten, Rückführungssysteme und nutzerseitige Aktivierung.",
 }
 
 
@@ -321,6 +331,56 @@ def inject_dynamic_theme_css(theme_name: str):
     font-size:18px;
     line-height:1.35;
   }}
+  .q-text-wrap {{
+    display:flex;
+    gap:8px;
+    align-items:flex-start;
+    flex:1;
+  }}
+  .q-info {{
+    position:relative;
+    display:inline-flex;
+    flex:0 0 auto;
+  }}
+  .q-info-icon {{
+    width:22px;
+    height:22px;
+    border-radius:999px;
+    border:1px solid rgba(15,23,42,0.18);
+    background:rgba(255,255,255,0.94);
+    color:{ui['accent']};
+    font-size:13px;
+    font-weight:900;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    cursor:help;
+    box-shadow:0 6px 14px rgba(15,23,42,0.06);
+  }}
+  .q-info-bubble {{
+    position:absolute;
+    top:30px;
+    right:0;
+    width:min(360px, calc(100vw - 80px));
+    padding:12px 14px;
+    border-radius:14px;
+    background:#0F172A;
+    color:#F8FAFC;
+    font-size:13px;
+    line-height:1.5;
+    box-shadow:0 18px 38px rgba(15,23,42,0.22);
+    opacity:0;
+    visibility:hidden;
+    transform:translateY(6px);
+    transition:opacity 0.16s ease, transform 0.16s ease;
+    z-index:1000;
+  }}
+  .q-info:hover .q-info-bubble,
+  .q-info:focus-within .q-info-bubble {{
+    opacity:1;
+    visibility:visible;
+    transform:translateY(0);
+  }}
   .q-head {{
     margin-bottom: 14px;
   }}
@@ -518,6 +578,16 @@ if "assessment_started" not in st.session_state:
     st.session_state.assessment_started = False
 if "scroll_target" not in st.session_state:
     st.session_state.scroll_target = None
+if "company_name" not in st.session_state:
+    st.session_state.company_name = ""
+if "sector" not in st.session_state:
+    st.session_state.sector = ""
+if "product_name" not in st.session_state:
+    st.session_state.product_name = ""
+if "dimension_priority" not in st.session_state:
+    st.session_state.dimension_priority = list(CIRCULAR_MODEL.keys())
+if "intake_completed" not in st.session_state:
+    st.session_state.intake_completed = False
 
 
 # ============================================================================
@@ -563,8 +633,11 @@ def save_assessment_mc(answers, product_name="Mein Produkt", company="Mein Unter
         "Timestamp": datetime.now().isoformat(),
         "Produkt": product_name,
         "Unternehmen": company,
+        "Sektor": st.session_state.sector,
+        "Dimensionen_Prioritaet": st.session_state.dimension_priority,
         "answers": answers,
         "scores": calculate_scores(answers),
+        "weights": st.session_state.weights,
     }
 
     path = Path("assessments.json")
@@ -618,11 +691,52 @@ def _set_scroll_target(target: Optional[str]):
     st.session_state.scroll_target = target
 
 
+def _is_intake_complete() -> bool:
+    return bool(
+        st.session_state.company_name.strip()
+        and st.session_state.sector.strip()
+        and st.session_state.product_name.strip()
+        and st.session_state.intake_completed
+    )
+
+
+def _weights_from_priority(priority_order: list[str]) -> dict[str, float]:
+    points = list(range(len(priority_order), 0, -1))
+    total_points = sum(points)
+    return {
+        theme: (points[idx] / total_points) if theme in priority_order else 0.0
+        for idx, theme in enumerate(priority_order)
+    }
+
+
+def _weights_to_integer_percentages(weights: dict[str, float], themes: list[str]) -> dict[str, int]:
+    raw_values = {theme: max(0.0, weights.get(theme, 0.0) * 100) for theme in themes}
+    floored = {theme: int(raw_values[theme]) for theme in themes}
+    remainder = 100 - sum(floored.values())
+
+    ranked_remainders = sorted(
+        themes,
+        key=lambda theme: (raw_values[theme] - floored[theme], raw_values[theme]),
+        reverse=True,
+    )
+
+    for theme in ranked_remainders[:max(0, remainder)]:
+        floored[theme] += 1
+
+    return floored
+
+
 def _set_current_page(page: str):
+    if page != "welcome" and not _is_intake_complete():
+        st.session_state.current_page = "welcome"
+        return
     st.session_state.current_page = page
 
 
 def _start_assessment():
+    if not _is_intake_complete():
+        st.session_state.current_page = "welcome"
+        return
     st.session_state.current_page = "assessment"
     st.session_state.assessment_started = True
     st.session_state.scroll_target = "top"
@@ -673,6 +787,9 @@ def _go_next_indicator_or_theme():
 
 
 def _show_results():
+    if not _is_intake_complete():
+        st.session_state.current_page = "welcome"
+        return
     st.session_state.current_page = "results"
 
 
@@ -723,9 +840,12 @@ with st.sidebar:
             type="primary" if is_active else "secondary",
             on_click=_set_current_page,
             args=(page,),
+            disabled=(page != "welcome" and not _is_intake_complete()),
         )
 
     st.markdown("---")
+    if not _is_intake_complete():
+        st.caption("Bitte vervollständigen Sie zuerst die Angaben auf der Startseite.")
 
 
 # ============================================================================
@@ -957,11 +1077,85 @@ def render_welcome():
             unsafe_allow_html=True,
         )
     st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("### Pflichtangaben vor dem Assessment")
+    st.markdown(
+        "Bitte beantworten Sie die folgenden Fragen vollständig. Erst danach können Sie das Tool verlassen und mit dem Assessment starten."
+    )
+
+    themes = list(CIRCULAR_MODEL.keys())
+    priority_options = ["Bitte wählen"] + themes
+    current_priority = list(st.session_state.dimension_priority)
+    while len(current_priority) < len(themes):
+        current_priority.append(themes[len(current_priority)])
+
+    with st.form("intake_form", clear_on_submit=False):
+        col_a, col_b = st.columns(2, gap="large")
+        with col_a:
+            company_name = st.text_input(
+                "Unternehmensname",
+                value=st.session_state.company_name,
+                placeholder="z. B. Muster GmbH",
+            )
+            sector = st.text_input(
+                "Sektor",
+                value=st.session_state.sector,
+                placeholder="z. B. Maschinenbau, Elektronik, Medizintechnik",
+            )
+        with col_b:
+            product_name = st.text_input(
+                "Bezeichnung des Produkts",
+                value=st.session_state.product_name,
+                placeholder="z. B. Kreiselpumpe X200",
+            )
+
+        st.markdown("#### Relevanzreihenfolge der Dimensionen")
+        st.caption("1 = höchste Relevanz für Ihr Unternehmen. Die Reihenfolge wird als Startgewichtung in die Einstellungen übernommen.")
+        priority_selection = []
+        p_col1, p_col2 = st.columns(2, gap="large")
+        for idx, theme in enumerate(themes):
+            target_col = p_col1 if idx < 3 else p_col2
+            with target_col:
+                default_value = current_priority[idx] if idx < len(current_priority) else themes[idx]
+                default_index = priority_options.index(default_value) if default_value in priority_options else 0
+                selection = st.selectbox(
+                    f"Priorität {idx + 1}",
+                    priority_options,
+                    index=default_index,
+                    key=f"priority_rank_{idx + 1}",
+                )
+                priority_selection.append(selection)
+
+        submitted = st.form_submit_button("Angaben speichern und Gewichtung vorbereiten", use_container_width=True, type="primary")
+
+    priority_is_complete = all(item in themes for item in priority_selection)
+    duplicates_exist = len(set(priority_selection)) != len(themes) if priority_is_complete else False
+
+    if submitted:
+        st.session_state.company_name = company_name.strip()
+        st.session_state.sector = sector.strip()
+        st.session_state.product_name = product_name.strip()
+
+        if not st.session_state.company_name or not st.session_state.sector or not st.session_state.product_name:
+            st.session_state.intake_completed = False
+            st.error("Bitte füllen Sie Unternehmensname, Sektor und Produktbezeichnung vollständig aus.")
+        elif not priority_is_complete:
+            st.session_state.intake_completed = False
+            st.error("Bitte vergeben Sie für alle fünf Prioritäten jeweils eine Dimension.")
+        elif duplicates_exist:
+            st.session_state.intake_completed = False
+            st.error("Jede Dimension darf in der Relevanzreihenfolge nur einmal vorkommen.")
+        else:
+            st.session_state.dimension_priority = priority_selection
+            st.session_state.weights = _weights_from_priority(priority_selection)
+            st.session_state.intake_completed = True
+            st.success("Pflichtangaben gespeichert. Die vorgeschlagenen Gewichtungen wurden in die Einstellungen übernommen.")
+
     st.button(
         "Assessment starten",
         use_container_width=True,
         type="primary",
         on_click=_start_assessment,
+        disabled=not _is_intake_complete(),
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1096,7 +1290,7 @@ def render_assessment():
             active = idx == st.session_state.current_theme
 
             first_ind = list(CIRCULAR_MODEL[theme].keys())[0]
-            teaser = CIRCULAR_MODEL[theme][first_ind].get("description", "")
+            teaser = THEME_SUMMARIES.get(theme) or CIRCULAR_MODEL[theme][first_ind].get("description", "")
             teaser = (teaser[:120] + "...") if len(teaser) > 120 else teaser
 
             outline = f"2px solid {ui['accent']}" if active else "none"
@@ -1185,7 +1379,18 @@ def render_assessment():
         for q_idx, question_data in enumerate(indicator_data.get("questions", []), start=1):
             code = question_data.get("code", "")
             text = question_data.get("text", "")
+            explanation = question_data.get("explanation", "")
             options = question_data.get("options", [])
+            escaped_code = html.escape(code)
+            escaped_text = html.escape(text)
+            tooltip_html = ""
+            if explanation:
+                tooltip_html = (
+                    f"<span class='q-info'>"
+                    f"<span class='q-info-icon'>i</span>"
+                    f"<span class='q-info-bubble'>{html.escape(explanation)}</span>"
+                    f"</span>"
+                )
 
             with st.container(key=f"q-card-{current_theme}-{current_indicator}-{code}"):
                 st.markdown(f"<div id='q-{code}'></div>", unsafe_allow_html=True)
@@ -1193,7 +1398,10 @@ def render_assessment():
                     f"""
                     <div class="q-head">
                       <div class="q-num">{q_idx}</div>
-                      <div class="q-text">{code}: {text}</div>
+                      <div class="q-text-wrap">
+                        <div class="q-text">{escaped_code}: {escaped_text}</div>
+                        {tooltip_html}
+                      </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -1259,6 +1467,12 @@ def render_assessment():
 
 def render_settings():
     st.header("Gewichtungen anpassen")
+    if st.session_state.dimension_priority:
+        st.caption(
+            "Ausgangsbasis aus der Startseite: "
+            + " > ".join(st.session_state.dimension_priority)
+            + ". Die Gewichtungen bleiben hier frei anpassbar."
+        )
     st.info(
         "Hier definieren Sie, wie stark jede Dimension in den Gesamtscore einfließt. "
         "Jede Dimension darf maximal 100% Gewicht haben."
@@ -1292,6 +1506,7 @@ def render_settings():
     col1, col2 = st.columns(2)
     themes = list(CIRCULAR_MODEL.keys())
     raw_weights = {}
+    display_weights = _weights_to_integer_percentages(st.session_state.weights, themes)
 
     with col1:
         for theme in themes[:3]:
@@ -1299,7 +1514,7 @@ def render_settings():
                 f"**{theme}**",
                 min_value=0,
                 max_value=100,
-                value=int(round(st.session_state.weights.get(theme, 0.2) * 100)),
+                value=display_weights.get(theme, 0),
                 step=1,
                 key=f"weight_{theme}",
             )
@@ -1310,7 +1525,7 @@ def render_settings():
                 f"**{theme}**",
                 min_value=0,
                 max_value=100,
-                value=int(round(st.session_state.weights.get(theme, 0.2) * 100)),
+                value=display_weights.get(theme, 0),
                 step=1,
                 key=f"weight_{theme}",
             )
@@ -1371,11 +1586,11 @@ def render_results():
     theme_colors = {k: v["accent"] for k, v in THEME_UI.items()}
     theme_colors_soft = {k: soften_hex(v["accent"], 0.28) for k, v in THEME_UI.items()}
     maturity_scale = [
-        ("Sehr gering", "0–20%"),
-        ("Gering", "20–40%"),
-        ("Mittel", "40–60%"),
-        ("Fortgeschritten", "60–80%"),
-        ("Sehr hoch", "80–100%"),
+        ("Stufe 1", "0–25%"),
+        ("Stufe 2", ">25–50%"),
+        ("Stufe 3", ">50–75%"),
+        ("Stufe 4", ">75–100%"),
+        ("Stufe 5", "100%"),
     ]
 
     # Build detailed rows
@@ -1426,13 +1641,17 @@ def render_results():
     )
     theme_order = {k: i for i, k in enumerate(CIRCULAR_MODEL.keys())}
     indicator_df["ThemeOrder"] = indicator_df["Thema"].map(theme_order).fillna(99).astype(int)
+    recommendation_df = indicator_df.copy()
+    recommendation_df = recommendation_df[recommendation_df["Score"].notna()]
+    recommendation_df = recommendation_df[recommendation_df["Score"] < 0.5]
+    recommendation_df = recommendation_df.sort_values(["ThemeOrder", "Order", "Indikator"], ascending=True)
 
     theme_df = pd.DataFrame(
         [{"Thema": k, "Score": v, "Score_%": v * 100} for k, v in theme_scores.items()]
     ).sort_values("Score", ascending=True)
 
-    tab_overview, tab_themes, tab_indicators, tab_questions, tab_export = st.tabs(
-        ["Überblick", "Dimensionen", "Indikatoren", "Leitfragen", "Export"]
+    tab_overview, tab_themes, tab_indicators, tab_questions, tab_recommendations, tab_export = st.tabs(
+        ["Überblick", "Dimensionen", "Indikatoren", "Leitfragen", "Handlungsempfehlungen", "Export"]
     )
 
     with tab_overview:
@@ -1440,7 +1659,10 @@ def render_results():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             scale_html = "<br/>".join(
-                [f"{m['emoji']} {name} ({rng})" for m, (name, rng) in zip(MATURITY_LEVELS, maturity_scale)]
+                [
+                    f"{m['emoji']} {m['name']} ({m.get('label', '')}) ({rng})"
+                    for m, (_, rng) in zip(MATURITY_LEVELS, maturity_scale)
+                ]
             )
             st.markdown(
                 f"""
@@ -1449,7 +1671,7 @@ def render_results():
                         text-align: center;'>
                 <h4 style='margin-top: 0; color: #0F172A;'>Reifegrad</h4>
                 <div style='font-size: 3em; font-weight: 900; color: #0F172A; margin: 10px 0;'>{level['emoji']}</div>
-                <p style='margin: 5px 0; font-size: 1.4em; font-weight: 800;'>{level['name']}</p>
+                <p style='margin: 5px 0; font-size: 1.4em; font-weight: 800;'>{level['name']} ({level.get('label', '')})</p>
                 <p style='margin: 5px 0; color: rgba(15,23,42,0.65);'>{level['description']}</p>
                 <hr style='margin: 10px 0; border:none; border-top:1px solid rgba(15,23,42,0.10);'>
                 <p style='margin: 5px 0; font-size: 1em;'><strong>Gewichteter Score:</strong> {total_score:.2f}/5.0</p>
@@ -1481,6 +1703,19 @@ def render_results():
         st.latex(
             rf"\text{{Gesamtscore}}=\frac{{{numerator}}}{{{denominator}}}={total_01:.2f}"
         )
+        st.markdown("### Reifestufen im Überblick")
+        for stage, (_, interval) in zip(MATURITY_LEVELS, maturity_scale):
+            st.markdown(
+                f"""
+                <div style="margin-bottom:12px; padding:16px 18px; background:#ffffff; border:1px solid rgba(15,23,42,0.08);
+                            border-radius:14px; box-shadow:0 8px 22px rgba(15,23,42,0.05);">
+                    <div style="font-weight:900; color:#0F172A;">{stage['emoji']} {stage['name']} ({stage.get('label', '')})</div>
+                    <div style="font-size:13px; color:rgba(15,23,42,0.56); margin:4px 0 8px 0;">Zuordnung: {interval}</div>
+                    <div style="color:#334155; line-height:1.55;">{html.escape(stage['description'])}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
     with tab_themes:
@@ -1679,15 +1914,51 @@ def render_results():
                 height=420,
             )
 
+    with tab_recommendations:
+        st.markdown("### Handlungsempfehlungen")
+        st.caption("Angezeigt werden nur Indikatoren mit einer Einzelbewertung unter 50 %.")
+
+        if recommendation_df.empty:
+            st.success("Aktuell liegt kein Indikator unter 50 %. Es werden daher keine Handlungsempfehlungen angezeigt.")
+        else:
+            for row in recommendation_df.itertuples(index=False):
+                recommendation_text = INDICATOR_RECOMMENDATIONS.get(row.Indikator)
+                score_pct = int(round((row.Score or 0) * 100))
+                if not recommendation_text:
+                    st.warning(f"Für {row.Indikator} wurde in Anhang III keine Handlungsempfehlung gefunden.")
+                    continue
+                st.markdown(
+                    f"""
+                    <div style="margin-bottom:14px; padding:18px; background:#ffffff; border-radius:16px;
+                                border:1px solid rgba(15,23,42,0.08); box-shadow:0 10px 24px rgba(15,23,42,0.05);">
+                        <div style="font-size:13px; font-weight:800; color:{theme_colors.get(row.Thema, '#0F172A')}; text-transform:uppercase; letter-spacing:0.03em;">
+                            {html.escape(row.Thema)}
+                        </div>
+                        <div style="margin-top:4px; font-size:18px; font-weight:900; color:#0F172A;">
+                            {html.escape(row.Indikator)}
+                        </div>
+                        <div style="margin:6px 0 10px 0; color:rgba(15,23,42,0.62); font-weight:700;">
+                            Einzelbewertung: {score_pct} %
+                        </div>
+                        <div style="color:#334155; line-height:1.6;">{html.escape(recommendation_text)}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
     with tab_export:
         st.markdown("### Export & Speicherung")
         col1, col2 = st.columns(2)
 
         with col1:
-            product_name = st.text_input("Produktname", "Mein Produkt")
-            company = st.text_input("Unternehmensname", "Mein Unternehmen")
+            product_name = st.text_input("Produktname", st.session_state.product_name or "Mein Produkt")
+            company = st.text_input("Unternehmensname", st.session_state.company_name or "Mein Unternehmen")
+            sector = st.text_input("Sektor", st.session_state.sector or "Nicht angegeben")
 
             if st.button("Assessment speichern", use_container_width=True, type="primary"):
+                st.session_state.product_name = product_name
+                st.session_state.company_name = company
+                st.session_state.sector = sector
                 save_assessment_mc(st.session_state.theme_answers, product_name=product_name, company=company)
                 st.success("Lokal gespeichert (assessments.json)")
 
@@ -1826,6 +2097,9 @@ def render_history():
 # ============================================================================
 
 def main():
+    if st.session_state.current_page != "welcome" and not _is_intake_complete():
+        st.session_state.current_page = "welcome"
+
     if st.session_state.current_page == "welcome":
         render_welcome()
     elif st.session_state.current_page == "assessment":
