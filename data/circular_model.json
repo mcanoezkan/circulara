@@ -244,28 +244,28 @@
       "questions": [
         {
           "code": "1.4.1",
-          "text": "In welchem Umfang ist die Produktstruktur auf eine ausreichende Restfestigkeit für einen weiteren Lebenszyklus ausgelegt?",
+          "text": "In welchem Umfang ist die Produktstruktur auf eine ausreichende Restfestigkeit für einen weiteren Lebenszyklus geeignet?",
           "type": "mc",
           "explanation": "Ausreichende Restfestigkeit ist eine technische Voraussetzung dafür, dass tragende Strukturen, die Lasten aufnehmen, die Formstabilität des Produkts sichern oder sicherheitsrelevante Kräfte übertragen, nach der Erstnutzung sicher weiterverwendet, instandgesetzt oder in einen weiteren Lebenszyklus überführt werden können. Bewertet wird dabei nicht der tatsächliche Schädigungszustand einzelner Altprodukte, sondern in welchem Umfang die Produktstruktur im Hinblick auf schädigungs- und ermüdungsbedingte Beanspruchungen sowie auf eine verbleibende strukturelle Tragfähigkeit für einen weiteren Lebenszyklus ausgelegt ist. (vgl. Picatoste et al. 2025, S. 185-192; König et al. 2024, S. 2-11; Roskladka et al. 2025, S.8; Mesa u. González-Quiroga 2023, S. 15)",
           "options": [
             {
-              "label": "Sehr geringe Auslegung auf Restfestigkeit; die Produktstruktur ist nicht auf einen weiteren Lebenszyklus ausgelegt; schädigungs- und ermüdungsbedingte Beanspruchungen über die Erstanwendung hinaus sind konstruktiv nicht berücksichtigt.",
+              "label": "Sehr geringe Auslegung auf Restfestigkeit; die Produktstruktur ist nicht auf einen weiteren Lebenszyklus geeignet; schädigungs- und ermüdungsbedingte Beanspruchungen über die Erstanwendung hinaus sind konstruktiv nicht berücksichtigt.",
               "score": 0.0
             },
             {
-              "label": "Geringe Auslegung auf Restfestigkeit; tragende Strukturen sind nur in geringem Umfang auf zusätzliche Schädigungs- und Ermüdungseinflüsse ausgelegt; eine ausreichende Restfestigkeit für einen weiteren Lebenszyklus ist nur eingeschränkt zu erwarten.",
+              "label": "Geringe Auslegung auf Restfestigkeit; tragende Strukturen sind nur in geringem Umfang auf zusätzliche Schädigungs- und Ermüdungseinflüsse geeignet; eine ausreichende Restfestigkeit für einen weiteren Lebenszyklus ist nur eingeschränkt zu erwarten.",
               "score": 0.25
             },
             {
-              "label": "Mittlere Auslegung auf Restfestigkeit; die Produktstruktur ist grundsätzlich auf eine verbleibende Restfestigkeit ausgelegt; ein weiterer Lebenszyklus ist jedoch nur unter zusätzlichen Instandsetzungs- oder Absicherungsmaßnahmen zu erwarten.",
+              "label": "Mittlere Auslegung auf Restfestigkeit; die Produktstruktur ist grundsätzlich auf eine verbleibende Restfestigkeit geeignet; ein weiterer Lebenszyklus ist jedoch nur unter zusätzlichen Instandsetzungs- oder Absicherungsmaßnahmen zu erwarten.",
               "score": 0.5
             },
             {
-              "label": "Hohe Auslegung auf Restfestigkeit; die Produktstruktur ist gut auf verbleibende Restfestigkeit ausgelegt; schädigungs- und ermüdungsbedingte Beanspruchungen sind weitgehend berücksichtigt, ein weiterer Lebenszyklus ist überwiegend zu erwarten.",
+              "label": "Hohe Auslegung auf Restfestigkeit; die Produktstruktur ist gut auf verbleibende Restfestigkeit geeignet; schädigungs- und ermüdungsbedingte Beanspruchungen sind weitgehend berücksichtigt, ein weiterer Lebenszyklus ist überwiegend zu erwarten.",
               "score": 0.75
             },
             {
-              "label": "Sehr hohe Auslegung auf Restfestigkeit; die Produktstruktur ist sehr gut auf verbleibende Restfestigkeit ausgelegt; schädigungs- und ermüdungsbedingte Beanspruchungen sind konstruktiv umfassend berücksichtigt, sodass ein weiterer Lebenszyklus ohne strukturelle Ertüchtigung zu erwarten ist.",
+              "label": "Sehr hohe Auslegung auf Restfestigkeit; die Produktstruktur ist sehr gut auf verbleibende Restfestigkeit geeignet; schädigungs- und ermüdungsbedingte Beanspruchungen sind konstruktiv umfassend berücksichtigt, sodass ein weiterer Lebenszyklus ohne strukturelle Ertüchtigung zu erwarten ist.",
               "score": 1.0
             }
           ]
@@ -396,28 +396,28 @@
       "questions": [
         {
           "code": "2.2.1",
-          "text": "In welchem Umfang ist ein dediziertes Budget für Aufbereitungsprojekte vorhanden?",
+          "text": "In welchem Umfang ist ein dediziertes Budget für Aufbereitungsprojekte vorhanden/geplant?",
           "type": "mc",
           "explanation": "Aufbereitungsprojekte benötigen Anfangsinvestitionen, zum Beispiel für Rücknahme, Logistik, Prüf- und Aufbereitungsinfrastruktur. Ein fest zugewiesenes Budget zeigt, dass das Thema strategisch verankert ist und nicht nur von Einzelinitiativen abhängt. Ohne gesicherte Finanzierung bleiben Maßnahmen häufig in Pilotphasen stecken und erreichen keine stabile Umsetzung. (vgl. Boorsma et al. 2022, S. 23; Tseng et al. 2023, S.5 und 20)",
           "options": [
             {
-              "label": "Nicht vorhanden; für Aufbereitungsprojekte ist kein zusätzliches Budget vorgesehen.",
+              "label": "Nicht vorhanden/geplant; für Aufbereitungsprojekte ist kein zusätzliches Budget vorgesehen.",
               "score": 0.0
             },
             {
-              "label": "In geringem Umfang vorhanden; es werden nur fallweise oder ad hoc finanzielle Mittel für einzelne Pilotprojekte bereitgestellt.",
+              "label": "In geringem Umfang vorhanden/geplant; es werden nur fallweise oder ad hoc finanzielle Mittel für einzelne Pilotprojekte bereitgestellt.",
               "score": 0.25
             },
             {
-              "label": "Teilweise vorhanden; finanzielle Mittel für Aufbereitungsprojekte sind wiederholt vorgesehen, jedoch noch nicht fest oder dauerhaft in der Finanzplanung verankert.",
+              "label": "Teilweise vorhanden/geplant; finanzielle Mittel für Aufbereitungsprojekte sind wiederholt vorgesehen, jedoch noch nicht fest oder dauerhaft in der Finanzplanung verankert.",
               "score": 0.5
             },
             {
-              "label": "Weitgehend vorhanden; ein Budget für Aufbereitung ist in der Finanzplanung eingeplant und für relevante Vorhaben verfügbar, jedoch noch nicht vollständig dauerhaft abgesichert.",
+              "label": "Weitgehend vorhanden/geplant; ein Budget für Aufbereitung ist in der Finanzplanung eingeplant und für relevante Vorhaben verfügbar, jedoch noch nicht vollständig dauerhaft abgesichert.",
               "score": 0.75
             },
             {
-              "label": "Vollständig vorhanden; ein dediziertes Budget für Aufbereitungsprojekte ist fest zugewiesen und dauerhaft integriert.",
+              "label": "Vollständig vorhanden/geplant; ein dediziertes Budget für Aufbereitungsprojekte ist fest zugewiesen und dauerhaft integriert.",
               "score": 1.0
             }
           ]
