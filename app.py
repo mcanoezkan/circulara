@@ -11,6 +11,7 @@ import streamlit.components.v1 as components
 import pandas as pd
 import json
 import html
+import re
 import textwrap
 import plotly.graph_objects as go
 import plotly.express as px
@@ -32,16 +33,23 @@ from utils import (
     generate_pdf_report,
 )
 
+import llm
+
 # ============================================================================
 # UI THEME (DYNAMIC BACKGROUND + CARD STYLES)
 # ============================================================================
 
+UNITY_NAVY     = "#0B1830"
+UNITY_NAVY_MID = "#1A3A6B"
+UNITY_BLUE     = "#1A3A6B"
+UNITY_LIGHT    = "#EEF3FB"
+
 THEME_UI = {
-    "Design": {"bg": "#E9FBF5", "bg2": "#F6FFFC", "accent": "#1F7E8A", "pill": "#D8F6EE"},
-    "Strategie": {"bg": "#EAF3FF", "bg2": "#F6FAFF", "accent": "#2B6CB0", "pill": "#DCEBFF"},
-    "Wirtschaftlichkeit": {"bg": "#FFF6E8", "bg2": "#FFFBF3", "accent": "#B7791F", "pill": "#FFE9C8"},
-    "Regulatorik": {"bg": "#F3EEFF", "bg2": "#FAF7FF", "accent": "#6B46C1", "pill": "#E8DEFF"},
-    "Systemische Befähiger": {"bg": "#FFF0F5", "bg2": "#FFF7FB", "accent": "#C026D3", "pill": "#FAD5E8"},
+    "Design":                {"bg": "#EEF3FB", "bg2": "#F4F7FD", "accent": UNITY_BLUE,     "pill": "#D6E4F7"},
+    "Strategie":             {"bg": "#EAF0F8", "bg2": "#F0F5FA", "accent": UNITY_NAVY_MID, "pill": "#C8D9EF"},
+    "Wirtschaftlichkeit":    {"bg": "#EDF3F8", "bg2": "#F2F6FB", "accent": "#1E7CB8",      "pill": "#CBE0F2"},
+    "Regulatorik":           {"bg": "#EEF2F7", "bg2": "#F3F6FA", "accent": UNITY_NAVY,     "pill": "#C5D4E8"},
+    "Systemische Befähiger": {"bg": "#EBF0F7", "bg2": "#F1F5FB", "accent": "#16437D",      "pill": "#C4D5E9"},
 }
 
 THEME_SUMMARIES = {
@@ -60,444 +68,362 @@ def inject_dynamic_theme_css(theme_name: str):
     st.markdown(
         f"""
 <style>
+  /* ── ASSESSMENT: WHITE BACKGROUND ── */
   .stApp {{
-    background: linear-gradient(180deg, {ui['bg']} 0%, {ui['bg2']} 65%, #FFFFFF 100%) !important;
+    background: #FFFFFF !important;
   }}
-
-  /* main container spacing + max width */
   [data-testid="stAppViewContainer"] > .main {{
-    padding-top: 140px;
-    padding-bottom: 36px;
+    padding-top: 16px;
+    padding-bottom: 48px;
+    background: #FFFFFF !important;
   }}
   [data-testid="stAppViewContainer"] > .main > div {{
-    max-width: 1220px;
+    max-width: 1240px;
     margin: 0 auto;
-    padding-left: 22px;
-    padding-right: 22px;
+    padding-left: 24px;
+    padding-right: 24px;
   }}
 
-  /* nicer headers in main */
-  h1, h2, h3 {{
-    color: #0F172A !important;
-    letter-spacing: -0.3px;
-  }}
-  h3 {{
-    font-size: 26px !important;
+  /* ── HEADINGS – UNITY NAVY ── */
+  h1, h2, h3, h4 {{
+    font-family: 'Barlow', system-ui, sans-serif !important;
+    color: #0B1830 !important;
     font-weight: 900 !important;
+    letter-spacing: -0.5px !important;
   }}
-  /* vertical "Dimensionen" label */
+  h3 {{ font-size: 22px !important; }}
 
-  /* top status bar */
+  /* ── TOP STATUS BAR — UNITY STYLE ── */
   [class*="st-key-topbar"] {{
-    background: rgba(255,255,255,0.85) !important;
-    border: 1px solid rgba(15,23,42,0.08) !important;
-    border-radius: 16px !important;
-    box-shadow: 0 12px 28px rgba(15,23,42,0.06) !important;
-    margin: 6px 0 18px 0 !important;
+    background: linear-gradient(135deg, #FFFFFF 0%, #F4F6FB 100%) !important;
+    border: 1px solid rgba(11,24,48,0.10) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 20px rgba(11,24,48,0.06) !important;
+    margin: 6px 0 24px 0 !important;
   }}
   [class*="st-key-topbar"] .topbar-inner {{
-    max-width: 1220px;
+    max-width: 1240px;
     margin: 0 auto;
-    padding: 20px 20px 26px 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    padding: 16px 22px;
   }}
   [class*="st-key-topbar"] .topbar-inner * {{
-    color: #0F172A !important;
     visibility: visible !important;
     opacity: 1 !important;
   }}
-  .topbar-title {{
-    font-size:22px !important;
-    font-weight:900 !important;
-    color:#0F172A !important;
-    text-align:center;
-    line-height:1.2;
+  .topbar-meta {{
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
   }}
-  .topbar-sub {{
-    font-size:15px !important;
-    color:rgba(15,23,42,0.65) !important;
-    text-align:center;
-    line-height:1.2;
+  .topbar-meta-label {{
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.14em !important;
+    text-transform: uppercase !important;
+    color: rgba(11,24,48,0.45) !important;
+  }}
+  .topbar-meta-value {{
+    font-size: 15px !important;
+    font-weight: 900 !important;
+    color: #0B1830 !important;
+    letter-spacing: -0.3px !important;
+  }}
+  .topbar-meta-value .pct {{
+    color: rgba(30,95,171,1) !important;
+    margin-left: 4px;
   }}
   .topbar-rail {{
-    width:100%;
-    height:8px;
-    background:rgba(15,23,42,0.08);
-    border-radius:999px;
-    overflow:hidden;
+    width: 100%;
+    height: 10px;
+    background: rgba(11,24,48,0.06);
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid rgba(11,24,48,0.04);
   }}
   .topbar-fill {{
-    height:8px;
-    width:var(--p);
-    background:{ui['accent']};
-    border-radius:999px;
+    height: 100%;
+    width: var(--p);
+    background: linear-gradient(90deg, #1A3A6B 0%, #1E5FAB 50%, #5BA3E8 100%);
+    border-radius: 999px;
+    transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    box-shadow: 0 0 12px rgba(30,95,171,0.25);
+    position: relative;
   }}
-  .topbar-left button, .topbar-right button {{
-    height:36px !important;
-    min-width:36px !important;
-    border-radius:10px !important;
-    border:1px solid rgba(15,23,42,0.12) !important;
-    background:#fff !important;
-    font-weight:900 !important;
+  .topbar-fill::after {{
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.25) 50%, transparent 100%);
+    border-radius: 999px;
+    animation: topbar-shine 2.4s ease-in-out infinite;
   }}
-  .topbar-left, .topbar-right {{
-    pointer-events: auto;
-  }}
-
-  .progress-wrap {{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:18px;
-    margin-top:10px;
-  }}
-  .progress-rail {{
-    width:100%;
-    height:10px;
-    background:rgba(15,23,42,0.08);
-    border-radius:999px;
-    overflow:hidden;
-  }}
-  .progress-bar {{
-    height:10px;
-    width:var(--p);
-    background:{ui['accent']};
-    border-radius:999px;
-  }}
-  .progress-metric {{
-    min-width:110px;
-    text-align:right;
-    color:#0F172A;
-    font-weight:900;
-  }}
-  .progress-metric small {{
-    display:block;
-    font-weight:700;
-    color:rgba(15,23,42,0.6);
+  @keyframes topbar-shine {{
+    0% {{ transform: translateX(-100%); }}
+    100% {{ transform: translateX(100%); }}
   }}
 
-  /* dimension cards (left column) */
-  .dim-card {{
-    background: rgba(255,255,255,0.72) !important;
-    border: 1px solid rgba(15,23,42,0.06) !important;
-    border-radius: 20px !important;
-    box-shadow: 0 12px 32px rgba(15,23,42,0.06), 0 2px 10px rgba(15,23,42,0.04) !important;
-    backdrop-filter: blur(8px);
-    padding: 16px 16px !important;
-    margin: 0 0 12px 0 !important;
-    min-height: 140px;
+  /* ── UNITY CARD BASE ── */
+  [class*="st-key-dim-card-"] {{
+    background: #FFFFFF !important;
+    border: 1px solid rgba(11,24,48,0.12) !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+    padding: 20px 20px 14px 20px !important;
+    margin: 0 0 10px 0 !important;
+    transition: box-shadow 0.18s ease, border-color 0.18s ease !important;
+  }}
+  [class*="st-key-dim-card-"]:hover {{
+    box-shadow: 0 4px 20px rgba(11,24,48,0.10) !important;
+    border-color: rgba(30,95,171,0.30) !important;
   }}
 
-  .dim-card, .q-card, .indicator-card, .indicator-bar, .topbar {{
-    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
-  }}
-  .dim-card:hover, .q-card:hover {{
-    transform: translateY(-2px);
-    box-shadow: 0 16px 38px rgba(15,23,42,0.08), 0 4px 14px rgba(15,23,42,0.06) !important;
-    border-color: rgba(15,23,42,0.10) !important;
-  }}
-
+  /* ── DIMENSION CARD CONTENT ── */
   .dim-row {{
-    display:flex;
-    align-items:flex-start;
-    justify-content:space-between;
-    gap:12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
   }}
-
   .dim-left {{
-    display:flex;
-    gap:12px;
-    align-items:flex-start;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    flex: 1;
   }}
-
   .dim-icon {{
-    width:44px;
-    height:44px;
-    border-radius:14px;
-    background: rgba(15,23,42,0.04);
-    border: 1px solid rgba(15,23,42,0.08);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-weight:900;
-    color: rgba(15,23,42,0.72);
-    font-size:18px;
+    width: 40px; height: 40px;
+    border-radius: 4px;
+    background: rgba(30,95,171,0.08);
+    border: 1px solid rgba(30,95,171,0.18);
+    display: flex; align-items: center; justify-content: center;
     flex: 0 0 auto;
-    margin-top:2px;
+    margin-top: 2px;
   }}
   .dim-icon svg {{
-    width: 22px;
-    height: 22px;
-    stroke: rgba(15,23,42,0.7);
+    width: 20px; height: 20px;
+    stroke: #1A3A6B;
     stroke-width: 2;
     fill: none;
     stroke-linecap: round;
     stroke-linejoin: round;
   }}
-
   .dim-title {{
-    font-weight:800 !important;
-    color:#0F172A;
-    font-size:20px !important;
-    line-height:1.15;
-    margin:0;
+    font-family: 'Barlow', system-ui, sans-serif !important;
+    font-weight: 800 !important;
+    color: #0B1830 !important;
+    font-size: 18px !important;
+    line-height: 1.2;
+    margin: 0;
+    letter-spacing: -0.2px;
   }}
-
   .dim-meta {{
-    margin-top:4px;
-    font-size:14.5px;
-    font-weight:800;
-    color: rgba(15,23,42,0.55);
+    margin-top: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(11,24,48,0.40);
+    letter-spacing: 0;
   }}
-
   .dim-desc {{
-    color:rgba(15,23,42,0.62);
-    font-size:15.5px;
-    margin-top:10px;
-    line-height:1.5;
-  }}
-
-  /* dimension container styled like a card */
-  [class*="st-key-dim-card-"] {{
-    background: rgba(255,255,255,0.72) !important;
-    border: 1px solid rgba(15,23,42,0.06) !important;
-    border-radius: 20px !important;
-    box-shadow: 0 12px 32px rgba(15,23,42,0.06), 0 2px 10px rgba(15,23,42,0.04) !important;
-    backdrop-filter: blur(8px);
-    padding: 16px 16px !important;
-    margin: 0 0 12px 0 !important;
-  }}
-  .dim-arrow-in {{
+    font-size: 14px;
+    color: rgba(11,24,48,0.60);
     margin-top: 10px;
-  }}
-  .dim-arrow-in div[data-testid="stButton"] {{
-    width: 100% !important;
-    display: block !important;
-  }}
-  .dim-arrow-in div[data-testid="stButton"] > button {{
-    width: 100% !important;
-    height: 38px !important;
-    border-radius: 12px !important;
-    border: 1px solid rgba(15,23,42,0.10) !important;
-    background: rgba(255,255,255,0.92) !important;
-    color: rgba(15,23,42,0.65) !important;
-    font-weight: 900 !important;
-    font-size: 15px !important;
-    line-height: 1 !important;
-    padding: 0 !important;
-    box-shadow: 0 8px 18px rgba(15,23,42,0.06) !important;
-  }}
-  .dim-arrow-in div[data-testid="stButton"] > button:hover {{
-    transform: translateY(-1px);
-    box-shadow: 0 12px 24px rgba(15,23,42,0.08) !important;
-    border-color: rgba(15,23,42,0.22) !important;
+    line-height: 1.55;
+    font-weight: 400;
   }}
 
-  /* question card (right column) */
-  /* question card container */
+  /* ── "Mehr erfahren" = pure Unity text link ── */
+  [class*="st-key-dim-btn-"] div[data-testid="stButton"],
+  [class*="st-key-dim-btn-"] div[data-testid="stButton"] > button,
+  [class*="st-key-dim-btn-"] div[data-testid="stButton"] > button[kind="secondary"],
+  [class*="st-key-dim-btn-"] div[data-testid="stButton"] > button[kind="primary"] {{
+    background: transparent !important;
+    border: none !important;
+    color: #1A3A6B !important;
+    font-weight: 800 !important;
+    font-size: 14px !important;
+    padding: 6px 0 4px 0 !important;
+    box-shadow: none !important;
+    text-align: left !important;
+    width: auto !important;
+    letter-spacing: 0 !important;
+    transform: none !important;
+  }}
+  [class*="st-key-dim-btn-"] div[data-testid="stButton"] > button:hover,
+  [class*="st-key-dim-btn-"] div[data-testid="stButton"] > button[kind="secondary"]:hover {{
+    color: #0B1830 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+    text-decoration: underline !important;
+  }}
+
+  /* ── HIDE Streamlit keyboard shortcut badges (keyb overlay) ── */
+  kbd {{ display: none !important; visibility: hidden !important; width: 0 !important; height: 0 !important; }}
+  [data-testid="stExpander"] summary kbd {{ display: none !important; }}
+  div[data-testid="stExpander"] summary > div > p:empty {{ display: none !important; }}
+  div[data-testid="stExpander"] summary span[aria-hidden="true"] {{ display: none !important; }}
+  [data-testid="stExpander"] summary [data-testid="stExpanderToggleIcon"] + span {{ display: none !important; }}
+  button[kind="secondary"] kbd,
+  button[kind="primary"] kbd {{ display: none !important; }}
+
+  /* ── QUESTION CARDS ── */
   [class*="st-key-q-card-"] {{
-    background: rgba(255,255,255,0.72) !important;
-    border: 1px solid rgba(15,23,42,0.06) !important;
-    border-radius: 20px !important;
-    box-shadow: 0 12px 32px rgba(15,23,42,0.06), 0 2px 10px rgba(15,23,42,0.04) !important;
-    backdrop-filter: blur(8px);
-    padding: 16px !important;
-    margin: 0 0 16px 0 !important;
+    background: #FFFFFF !important;
+    border: 1px solid rgba(11,24,48,0.12) !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+    padding: 20px !important;
+    margin: 0 0 10px 0 !important;
+    transition: box-shadow 0.18s ease, border-color 0.18s ease !important;
   }}
-  .q-head {{
-    display:flex;
-    gap:10px;
-    align-items:flex-start;
+  [class*="st-key-q-card-"]:hover {{
+    box-shadow: 0 4px 16px rgba(11,24,48,0.08) !important;
   }}
+  .q-head {{ display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; }}
   .q-num {{
-    width:38px;
-    height:38px;
-    border-radius:999px;
-    background:rgba(15,23,42,0.92);
-    color:#fff;
-    font-weight:900;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-size:16px;
-    margin-top:2px;
+    width: 32px; height: 32px;
+    border-radius: 4px;
+    background: #0B1830;
+    color: #FFFFFF;
+    font-weight: 800;
+    font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
     flex: 0 0 auto;
+    letter-spacing: 0;
+    margin-top: 2px;
   }}
   .q-text {{
-    font-weight:900;
-    color:#0F172A;
-    font-size:18px;
-    line-height:1.35;
+    font-family: 'Barlow', system-ui, sans-serif !important;
+    font-weight: 800 !important;
+    color: #0B1830 !important;
+    font-size: 17px !important;
+    line-height: 1.35;
+    letter-spacing: -0.2px;
   }}
-  .q-text-wrap {{
-    display:flex;
-    gap:8px;
-    align-items:flex-start;
-    flex:1;
-  }}
-  .q-info {{
-    position:relative;
-    display:inline-flex;
-    flex:0 0 auto;
-  }}
+  .q-text-wrap {{ display: flex; gap: 10px; align-items: flex-start; flex: 1; }}
+  .q-info {{ position: relative; display: inline-flex; flex: 0 0 auto; }}
   .q-info-icon {{
-    width:22px;
-    height:22px;
-    border-radius:999px;
-    border:1px solid rgba(15,23,42,0.18);
-    background:rgba(255,255,255,0.94);
-    color:{ui['accent']};
-    font-size:13px;
-    font-weight:900;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    cursor:help;
-    box-shadow:0 6px 14px rgba(15,23,42,0.06);
+    width: 22px; height: 22px; border-radius: 4px;
+    border: 1px solid rgba(11,24,48,0.18);
+    background: #FFFFFF;
+    color: #1A3A6B;
+    font-size: 12px; font-weight: 800;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: help;
   }}
   .q-info-bubble {{
-    position:absolute;
-    top:30px;
-    right:0;
-    width:min(360px, calc(100vw - 80px));
-    padding:12px 14px;
-    border-radius:14px;
-    background:#0F172A;
-    color:#F8FAFC;
-    font-size:13px;
-    line-height:1.5;
-    box-shadow:0 18px 38px rgba(15,23,42,0.22);
-    opacity:0;
-    visibility:hidden;
-    transform:translateY(6px);
-    transition:opacity 0.16s ease, transform 0.16s ease;
-    z-index:1000;
+    position: absolute; top: 30px; right: 0;
+    width: min(360px, calc(100vw - 80px));
+    padding: 14px 16px;
+    border-radius: 6px;
+    background: #0B1830;
+    color: #FFFFFF;
+    font-size: 13px; line-height: 1.55;
+    box-shadow: 0 12px 32px rgba(11,24,48,0.25);
+    opacity: 0; visibility: hidden;
+    transform: translateY(6px);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    z-index: 1000;
   }}
   .q-info:hover .q-info-bubble,
   .q-info:focus-within .q-info-bubble {{
-    opacity:1;
-    visibility:visible;
-    transform:translateY(0);
-  }}
-  .q-head {{
-    margin-bottom: 14px;
+    opacity: 1; visibility: visible; transform: translateY(0);
   }}
 
-  /* score buttons (horizontal tiles) */
-  /* answer buttons inside question card */
-  [class*="st-key-q-card-"] div[data-testid="stButton"] {{
-    width: 100% !important;
-  }}
+  /* Answer option buttons */
+  [class*="st-key-q-card-"] div[data-testid="stButton"] {{ width: 100% !important; }}
   [class*="st-key-q-card-"] div[data-testid="stButton"] > button {{
     width: 100% !important;
     text-align: left !important;
     justify-content: flex-start !important;
-    border-radius: 10px !important;
-    border: 1px solid rgba(15,23,42,0.12) !important;
-    background: #ffffff !important;
-    color: rgba(15,23,42,0.85) !important;
-    padding: 9px 14px !important;
-    margin-bottom: 4px !important;
-    box-shadow: 0 6px 18px rgba(15,23,42,0.04) !important;
+    border-radius: 4px !important;
+    border: 1px solid rgba(11,24,48,0.12) !important;
+    background: #FFFFFF !important;
+    color: #0B1830 !important;
+    padding: 11px 16px !important;
+    margin-bottom: 5px !important;
+    box-shadow: none !important;
     font-weight: 600 !important;
+    font-size: 14px !important;
+    transition: border-color 0.14s ease, background 0.14s ease !important;
   }}
   [class*="st-key-q-card-"] div[data-testid="stButton"] > button:hover {{
-    border-color: rgba(15,23,42,0.22) !important;
-    box-shadow: 0 10px 22px rgba(15,23,42,0.06) !important;
+    border-color: rgba(30,95,171,0.40) !important;
+    background: rgba(30,95,171,0.04) !important;
+    transform: none !important;
+    box-shadow: none !important;
   }}
   [class*="st-key-q-card-"] div[data-testid="stButton"] > button[kind="primary"] {{
-    background: {ui['pill']} !important;
-    border-color: {ui['accent']} !important;
-    color: #0F172A !important;
+    background: rgba(30,95,171,0.08) !important;
+    border-color: #1A3A6B !important;
+    border-left-width: 3px !important;
+    color: #0B1830 !important;
+    font-weight: 800 !important;
+  }}
+  /* Selected answer text (primary) — schwarz statt weiß, überschreibt globale Regel */
+  [class*="st-key-q-card-"] div[data-testid="stButton"] > button p,
+  [class*="st-key-q-card-"] div[data-testid="stButton"] > button span,
+  [class*="st-key-q-card-"] div[data-testid="stButton"] > button *,
+  [class*="st-key-q-card-"] div[data-testid="stButton"] > button[kind="primary"] p,
+  [class*="st-key-q-card-"] div[data-testid="stButton"] > button[kind="primary"] span,
+  [class*="st-key-q-card-"] div[data-testid="stButton"] > button[kind="primary"] * {{
+    color: #0B1830 !important;
   }}
 
-  /* indicator accordion buttons */
-  .indicator-acc {{
-    width: 100%;
-  }}
+  /* ── INDICATOR BUTTONS ── */
+  .indicator-acc {{ width: 100%; }}
   .indicator-acc div[data-testid="stButton"] > button {{
     width: 100% !important;
-    height: 44px !important;
-    border-radius: 10px !important;
-    border: 1px solid rgba(15,23,42,0.14) !important;
-    background: #ffffff !important;
-    color: #0B1220 !important;
-    font-weight: 900 !important;
-    font-size: 20px !important;
-    box-shadow: 0 6px 14px rgba(15,23,42,0.05) !important;
-    transition: none !important;
-    padding: 0 12px !important;
+    height: auto !important;
+    min-height: 42px !important;
+    border-radius: 4px !important;
+    border: 1px solid rgba(11,24,48,0.12) !important;
+    background: #FFFFFF !important;
+    color: #0B1830 !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+    box-shadow: none !important;
+    padding: 10px 14px !important;
     text-align: left !important;
-  }}
-  .indicator-acc div[data-testid="stButton"] > button * {{
-    font-size: 20px !important;
-    font-weight: 900 !important;
-    color: #0B1220 !important;
-  }}
-  .indicator-acc div[data-testid="stButton"] {{
-    font-size: 20px !important;
-    font-weight: 900 !important;
-    color: #0B1220 !important;
-  }}
-  .indicator-acc div[data-testid="stButton"] * {{
-    font-size: 20px !important;
-    font-weight: 900 !important;
-    color: #0B1220 !important;
+    transition: border-color 0.14s ease !important;
   }}
   .indicator-acc div[data-testid="stButton"] > button:hover {{
-    border-color: rgba(15,23,42,0.25) !important;
-    box-shadow: 0 10px 22px rgba(15,23,42,0.08) !important;
+    border-color: rgba(30,95,171,0.35) !important;
+    background: rgba(30,95,171,0.03) !important;
   }}
 
-  /* expander header styling for indicator section */
-  div[data-testid="stExpander"] summary {{
-    font-weight: 700 !important;
-    font-size: 20px !important;
-    padding: 12px 0 !important;
-    border: none !important;
-  }}
-  div[data-testid="stExpander"] summary * {{
-    font-size: 20px !important;
-    font-weight: 700 !important;
-    color: #0B1220 !important;
-  }}
+  /* ── EXPANDER ── */
   div[data-testid="stExpander"] {{
-    background: #ffffff !important;
-    border: none !important;
-    border-radius: 16px !important;
-    box-shadow: 0 10px 24px rgba(15,23,42,0.06) !important;
-    padding: 8px 10px !important;
+    background: #FFFFFF !important;
+    border: 1px solid rgba(11,24,48,0.12) !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+    padding: 4px 0 !important;
   }}
-  div[data-testid="stExpander"] > details {{
-    background: #ffffff !important;
-    border-radius: 16px !important;
-    border: none !important;
-  }}
+  div[data-testid="stExpander"] > details {{ background: #FFFFFF !important; border-radius: 6px !important; }}
   div[data-testid="stExpander"] summary {{
-    padding: 12px 12px !important;
-    font-size: 20px !important;
     font-weight: 700 !important;
+    font-size: 15px !important;
+    color: #0B1830 !important;
+    padding: 14px 16px !important;
     border: none !important;
     outline: none !important;
     box-shadow: none !important;
+    background: transparent !important;
   }}
-  div[data-testid="stExpander"] summary,
   div[data-testid="stExpander"] summary * {{
-    background: rgba(255,255,255,0.95) !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    color: #0B1830 !important;
+    background: transparent !important;
   }}
   div[data-testid="stExpander"] summary::before,
-  div[data-testid="stExpander"] summary::after {{
-    border: none !important;
-    outline: none !important;
-    box-shadow: none !important;
-  }}
+  div[data-testid="stExpander"] summary::after {{ border: none !important; }}
   div[data-testid="stExpander"] summary,
   div[data-testid="stExpander"] summary *,
-  div[data-testid="stExpander"] > details {{
-    border-color: transparent !important;
-  }}
+  div[data-testid="stExpander"] > details {{ border-color: transparent !important; }}
 </style>
 """,
         unsafe_allow_html=True,
@@ -509,8 +435,8 @@ def inject_dynamic_theme_css(theme_name: str):
 # ============================================================================
 
 st.set_page_config(
-    page_title="Circulara - Circularity Fit Check",
-    page_icon="🌍",
+    page_title="Unity - Circularity Fit Check",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -522,33 +448,346 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-  [data-testid="stSidebar"]{
-    background: rgba(255,255,255,0.55) !important;
-    border-right: 1px solid rgba(15,23,42,0.06);
-    backdrop-filter: blur(10px);
+  /* ── UNITY FONT (Barlow) ── */
+  @import url('https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,700;1,900&display=swap');
+  /* ── Material Symbols Icons komplett ausblenden (Font lädt unzuverlässig → zeigt sonst Text wie "keyboard_arrow_down") ── */
+  span.material-symbols-outlined,
+  span.material-symbols-rounded,
+  span.material-symbols-sharp,
+  [class*="material-symbols"],
+  [class*="MaterialSymbols"],
+  [data-testid="stIconMaterial"],
+  [data-testid="stExpanderIcon"],
+  [data-testid="stTooltipIcon"],
+  [data-testid="stToolbarActionButtonIcon"],
+  [data-testid="stAlertDynamicIcon"] {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important;
+    height: 0 !important;
+    font-size: 0 !important;
+    overflow: hidden !important;
   }
+  *, *::before, *::after {
+    font-family: 'Barlow', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif !important;
+  }
+  .stApp { background: #FFFFFF !important; }
+
+  /* ── UNITY NAVY SIDEBAR ── */
+  [data-testid="stSidebar"] {
+    background: #0B1830 !important;
+    border-right: 1px solid rgba(255,255,255,0.06) !important;
+    backdrop-filter: none !important;
+  }
+  [data-testid="stSidebar"] > div { background: #0B1830 !important; }
+  [data-testid="stSidebar"] p,
+  [data-testid="stSidebar"] span,
+  [data-testid="stSidebar"] label { color: rgba(255,255,255,0.65) !important; }
+  [data-testid="stSidebar"] h5 {
+    color: rgba(255,255,255,0.28) !important;
+    font-size: 10px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.12em !important;
+    font-weight: 700 !important;
+  }
+  [data-testid="stSidebar"] hr {
+    border-color: rgba(255,255,255,0.07) !important;
+    margin: 14px 0 !important;
+  }
+  [data-testid="stSidebar"] small,
+  [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
+    color: rgba(255,255,255,0.30) !important;
+    font-size: 12px !important;
+  }
+  /* Sidebar nav buttons */
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 8px !important;
+    color: rgba(255,255,255,0.55) !important;
+    font-weight: 500 !important;
+    font-size: 13.5px !important;
+    padding: 9px 14px !important;
+    text-align: left !important;
+    box-shadow: none !important;
+    letter-spacing: -0.1px !important;
+    transition: background 0.14s ease, color 0.14s ease !important;
+  }
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+    background: rgba(255,255,255,0.07) !important;
+    color: rgba(255,255,255,0.90) !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] {
+    background: rgba(30,95,171,0.22) !important;
+    color: #FFFFFF !important;
+    font-weight: 700 !important;
+    border-left: 3px solid #1A3A6B !important;
+    border-radius: 0 8px 8px 0 !important;
+    padding-left: 16px !important;
+    box-shadow: none !important;
+  }
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"]:hover {
+    background: rgba(30,95,171,0.32) !important;
+    color: #FFFFFF !important;
+  }
+
+  /* ── MAIN LAYOUT ── */
   header[data-testid="stHeader"] { display: block; z-index: 1500; background: transparent; }
   [data-testid="stAppViewContainer"] > .main { padding-top: 24px; }
   div[data-testid="stStatusWidget"] { display: none !important; }
   div[data-testid="stSpinner"] { display: none !important; }
   .js-plotly-plot .plotly .loading,
   .js-plotly-plot .plotly .loading-text,
-  .js-plotly-plot .plotly .plotly-loading {
+  .js-plotly-plot .plotly .plotly-loading { display: none !important; }
+
+  /* ── KEYBOARD-ICON TEXT & BADGES AUSBLENDEN ── */
+  kbd { display: none !important; }
+  /* Sidebar-Toggle-Buttons komplett ausblenden (collapsed + expanded state) */
+  [data-testid="collapsedControl"] { display: none !important; }
+  [data-testid="stSidebarCollapseButton"] { display: none !important; }
+  [data-testid="stSidebarHeader"] > button { display: none !important; }
+  button[data-testid="stBaseButton-headerNoPadding"] { display: none !important; }
+  /* Streamlit-Header komplett ausblenden */
+  header[data-testid="stHeader"] {
     display: none !important;
   }
-  .dim-icon {
-    width:44px;
-    height:44px;
-    border-radius:14px;
-    background: rgba(15,23,42,0.04);
-    border: 1px solid rgba(15,23,42,0.08);
-    display:flex;
-    align-items:center;
-    justify-content:center;
+  /* Footer & deploy ausblenden */
+  #MainMenu { visibility: hidden !important; }
+  footer { visibility: hidden !important; }
+  .stDeployButton { display: none !important; }
+
+  /* ── GLOBAL BUTTON BASE ── */
+  div[data-testid="stButton"] > button {
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 13.5px !important;
+    letter-spacing: -0.1px !important;
+    transition: all 0.14s ease !important;
   }
-  .dim-icon svg {
-    width: 22px;
-    height: 22px;
+  div[data-testid="stButton"] > button[kind="primary"] {
+    background: #0B1830 !important;
+    color: #FFFFFF !important;
+    border: 1px solid #0B1830 !important;
+    box-shadow: 0 2px 6px rgba(11,24,48,0.25) !important;
+  }
+  div[data-testid="stButton"] > button[kind="primary"] *,
+  div[data-testid="stButton"] > button[kind="primary"] p,
+  div[data-testid="stButton"] > button[kind="primary"] span {
+    color: #FFFFFF !important;
+  }
+  div[data-testid="stButton"] > button[kind="primary"]:hover {
+    background: #1A3A6B !important;
+    border-color: #1A3A6B !important;
+    box-shadow: 0 4px 14px rgba(11,24,48,0.30) !important;
+    transform: translateY(-1px) !important;
+  }
+  div[data-testid="stButton"] > button[kind="secondary"] {
+    background: #FFFFFF !important;
+    color: #0B1830 !important;
+    border: 1px solid rgba(11,24,48,0.15) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
+  }
+  div[data-testid="stButton"] > button[kind="secondary"] *,
+  div[data-testid="stButton"] > button[kind="secondary"] p,
+  div[data-testid="stButton"] > button[kind="secondary"] span {
+    color: #0B1830 !important;
+  }
+  /* ── SIDEBAR BUTTON TEXT — nach globalen Regeln, um cascade zu gewinnen ── */
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button p,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button span,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button * {
+    color: rgba(255,255,255,0.65) !important;
+  }
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover p,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover span,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover * {
+    color: rgba(255,255,255,0.95) !important;
+  }
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] p,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] span,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] * {
+    color: #FFFFFF !important;
+  }
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button:disabled p,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button:disabled span,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button:disabled *,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[disabled] p,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[disabled] span,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[disabled] * {
+    color: rgba(255,255,255,0.35) !important;
+  }
+  div[data-testid="stButton"] > button[kind="secondary"]:hover {
+    border-color: rgba(11,24,48,0.28) !important;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.08) !important;
+    transform: translateY(-1px) !important;
+  }
+
+  /* ── GLOBAL HEADINGS ── */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Barlow', system-ui, sans-serif !important;
+    color: #0B1830 !important;
+    letter-spacing: -0.5px !important;
+    font-weight: 800 !important;
+  }
+  h1 { font-size: 36px !important; font-weight: 900 !important; letter-spacing: -1px !important; }
+  h2 { font-size: 28px !important; font-weight: 900 !important; }
+  h3 { font-size: 22px !important; font-weight: 800 !important; }
+  p, label, span, div { font-family: 'Barlow', system-ui, sans-serif !important; }
+
+  /* ── TABS ── */
+  div[data-testid="stTabs"] button[role="tab"] {
+    font-weight: 700 !important;
+    font-size: 14px !important;
+    color: rgba(11,24,48,0.45) !important;
+    letter-spacing: 0 !important;
+  }
+  div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+    color: #0B1830 !important;
+    border-bottom-color: #1A3A6B !important;
+  }
+
+  /* ── METRICS ── */
+  div[data-testid="stMetric"] {
+    background: #FFFFFF !important;
+    border: 1px solid rgba(0,0,0,0.06) !important;
+    border-radius: 12px !important;
+    padding: 16px 20px !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05) !important;
+  }
+  div[data-testid="stMetric"] label { color: rgba(10,10,10,0.45) !important; font-size:12px !important; }
+  div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: #0A0A0A !important; font-weight: 800 !important; }
+
+  /* ── FORM INPUTS ── */
+  div[data-testid="stTextInput"] input,
+  div[data-testid="stNumberInput"] input {
+    border-radius: 8px !important;
+    border: 1px solid rgba(0,0,0,0.12) !important;
+    background: #FFFFFF !important;
+    font-size: 14px !important;
+    color: #0A0A0A !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+  }
+  div[data-testid="stTextInput"] input:focus,
+  div[data-testid="stNumberInput"] input:focus {
+    border-color: #1A3A6B !important;
+    box-shadow: 0 0 0 3px rgba(0,102,255,0.10) !important;
+  }
+  div[data-testid="stSelectbox"] > div {
+    border-radius: 8px !important;
+    border: 1px solid rgba(0,0,0,0.12) !important;
+    background: #FFFFFF !important;
+  }
+
+  /* ── EXPANDER ── */
+  div[data-testid="stExpander"] {
+    background: #FFFFFF !important;
+    border: 1px solid rgba(0,0,0,0.07) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.05) !important;
+  }
+  div[data-testid="stExpander"] summary {
+    font-weight: 700 !important;
+    font-size: 14px !important;
+    color: #0A0A0A !important;
+    padding: 14px 16px !important;
+  }
+
+  /* ── ICON BOX ── */
+  .dim-icon {
+    width: 40px; height: 40px; border-radius: 4px;
+    background: rgba(30,95,171,0.08);
+    border: 1px solid rgba(30,95,171,0.18);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .dim-icon svg { width: 20px; height: 20px; }
+
+  /* ── FORM SUBMIT BUTTON ── */
+  div[data-testid="stFormSubmitButton"] > button,
+  div[data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"],
+  div[data-testid="stFormSubmitButton"] > button[kind="primary"] {
+    background: #0B1830 !important;
+    color: #FFFFFF !important;
+    border: 1px solid #0B1830 !important;
+    border-radius: 4px !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 8px rgba(11,24,48,0.20) !important;
+    padding: 12px 24px !important;
+    min-height: 46px !important;
+  }
+  div[data-testid="stFormSubmitButton"] > button p,
+  div[data-testid="stFormSubmitButton"] > button span {
+    color: #FFFFFF !important;
+    font-weight: 700 !important;
+  }
+  div[data-testid="stFormSubmitButton"] > button:hover,
+  div[data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"]:hover {
+    background: #1A3A6B !important;
+    border-color: #1A3A6B !important;
+    color: #FFFFFF !important;
+    transform: none !important;
+  }
+  /* Global: alle primary buttons weißer Text */
+  div[data-testid="stButton"] > button[kind="primary"] p,
+  div[data-testid="stButton"] > button[kind="primary"] span {
+    color: #FFFFFF !important;
+  }
+  /* Download button */
+  div[data-testid="stDownloadButton"] > button {
+    background: #0B1830 !important;
+    color: #FFFFFF !important;
+    border: 1px solid #0B1830 !important;
+    border-radius: 4px !important;
+    font-weight: 700 !important;
+  }
+  div[data-testid="stDownloadButton"] > button p,
+  div[data-testid="stDownloadButton"] > button span {
+    color: #FFFFFF !important;
+  }
+
+  /* ── SIDEBAR: DEFINITIVELY OVERRIDE BUTTON APPEARANCE ── */
+  /* secondary (inactive) nav items — transparent, white text */
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="secondary"],
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="secondaryFormSubmit"] {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 4px !important;
+    color: rgba(255,255,255,0.72) !important;
+    font-weight: 600 !important;
+    font-size: 16px !important;
+    padding: 12px 18px !important;
+    text-align: left !important;
+    box-shadow: none !important;
+    letter-spacing: 0 !important;
+    transform: none !important;
+  }
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover,
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="secondary"]:hover {
+    background: rgba(255,255,255,0.08) !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+  /* primary (active) nav item */
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] {
+    background: rgba(30,95,171,0.20) !important;
+    border: none !important;
+    border-left: 3px solid #1A3A6B !important;
+    border-radius: 0 4px 4px 0 !important;
+    color: #FFFFFF !important;
+    font-weight: 800 !important;
+    font-size: 16px !important;
+    padding: 12px 18px !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+  [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"]:hover {
+    background: rgba(30,95,171,0.30) !important;
+    transform: none !important;
   }
 </style>
 """,
@@ -798,31 +1037,38 @@ def _show_results():
 # ============================================================================
 
 with st.sidebar:
-    st.markdown(
-        """
-        <div style="
-            display:flex;
-            flex-direction:column;
-            align-items:center;
-            justify-content:flex-start;
-            padding-top:32px;
-        ">
-        """,
-        unsafe_allow_html=True,
-    )
-
-    logo_path = Path("assets") / "circulara-logo.png"
+    logo_path = Path("assets") / "unity-logo.png"
     if logo_path.exists():
+        st.markdown("<div style='padding: 28px 16px 8px 16px;'>", unsafe_allow_html=True)
         st.image(str(logo_path))
+        st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.markdown("### 🌍")
+        st.markdown(
+            """
+            <div style="padding: 28px 20px 12px 20px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:32px;height:32px;background:#1A3A6B;border-radius:8px;
+                            display:flex;align-items:center;justify-content:center;">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <path d="M3 3h5v12H3V3zm7 0h5v12h-5V3z" fill="white"/>
+                  </svg>
+                </div>
+                <span style="font-size:18px;font-weight:900;color:#FFFFFF;letter-spacing:-0.4px;">Unity</span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.markdown(
-        "<hr style='margin:16px 0 12px 0; border:none; border-top:1px solid #e0e0e0;'>",
+        "<div style='margin:0 16px;border-top:1px solid rgba(255,255,255,0.07);'></div>",
         unsafe_allow_html=True,
     )
-
-    st.markdown("##### Navigation")
+    st.markdown(
+        "<div style='padding:16px 6px 6px 6px;font-size:10px;font-weight:700;"
+        "text-transform:uppercase;letter-spacing:0.12em;color:rgba(255,255,255,0.28);'>Navigation</div>",
+        unsafe_allow_html=True,
+    )
 
     nav_items = [
         ("Start", "welcome"),
@@ -840,7 +1086,6 @@ with st.sidebar:
             type="primary" if is_active else "secondary",
             on_click=_set_current_page,
             args=(page,),
-            disabled=(page != "welcome" and not _is_intake_complete()),
         )
 
     st.markdown("---")
@@ -857,122 +1102,199 @@ def render_welcome():
         textwrap.dedent(
             """
         <style>
+          /* ── UNITY DARK HERO BACKGROUND ── */
           .stApp {
-            background:
-              radial-gradient(800px 360px at 12% -8%, rgba(31,126,138,0.14) 0%, rgba(31,126,138,0.0) 60%),
-              radial-gradient(900px 380px at 50% -6%, rgba(43,108,176,0.12) 0%, rgba(43,108,176,0.0) 60%),
-              radial-gradient(900px 380px at 90% -6%, rgba(183,121,31,0.12) 0%, rgba(183,121,31,0.0) 60%),
-              radial-gradient(900px 420px at 15% 10%, rgba(107,70,193,0.10) 0%, rgba(107,70,193,0.0) 65%),
-              radial-gradient(900px 420px at 85% 12%, rgba(192,38,211,0.10) 0%, rgba(192,38,211,0.0) 65%),
-              #F6F7FB !important;
+            background: #0B1830 !important;
           }
-          [data-testid="stSidebar"] { background: #EEF1F5 !important; }
 
-          .home-hero {
-            background: transparent;
-            border: none;
-            padding: 12px 0 8px 0;
-            box-shadow: none;
-            margin: 8px 0 18px 0;
-            display: flex;
-            flex-direction: column;
+          /* ── HERO ── */
+          .hero-wrap {
+            text-align: center;
+            padding: 72px 20px 52px 20px;
+          }
+          .hero-eyebrow {
+            display: inline-flex;
             align-items: center;
-          }
-          .home-row {
-            display:flex;
-            gap:18px;
-            flex-wrap:wrap;
-          }
-          .home-hero { flex: 1 1 100%; }
-
-          .home-title {
-            font-size: 64px;
-            font-weight: 900;
-            font-style: italic;
-            letter-spacing: -1px;
-            color: #0F172A;
-            margin: 0;
-            line-height: 1.0;
-            text-align: center;
-          }
-          .home-hero .home-subtitle { text-align:center; }
-          .home-badges { justify-content:center; }
-          .home-steps { justify-items:center; }
-
-          .home-subtitle {
-            margin-top: 12px;
-            color: rgba(15,23,42,0.72);
-            font-size: 18px;
-            line-height: 1.7;
-            max-width: 860px;
-            text-align: center;
-          }
-
-          .home-badges {
-            display:flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-top: 14px;
-          }
-
-          .home-badge {
-            display:inline-block;
-            padding: 8px 12px;
+            gap: 8px;
+            padding: 6px 16px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.14);
             border-radius: 999px;
-            border: 1px solid rgba(15,23,42,0.08);
-            background: rgba(255,255,255,0.85);
-            font-size: 12px;
-            font-weight: 800;
-            color: rgba(15,23,42,0.72);
+            font-size: 11px;
+            font-weight: 700;
+            color: rgba(255,255,255,0.75);
+            letter-spacing: 0.10em;
+            margin-bottom: 28px;
+            text-transform: uppercase;
           }
-
-          .home-card {
-            background:#fff;
-            border: 1px solid rgba(15,23,42,0.08);
-            border-radius: 16px;
-            padding: 18px 18px;
-            box-shadow: 0 10px 26px rgba(15,23,42,0.05);
-            height: 100%;
-            transition: transform .18s ease, box-shadow .18s ease;
-            margin-bottom: 10px;
-          }
-          .home-card * { text-align: center; }
-          .home-cards { max-width: 1100px; margin: 0 auto; }
-          .home-shell {
-            min-height: 0;
-            display: block;
-          }
-          .home-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 16px 38px rgba(15,23,42,0.08);
-          }
-
-          .home-card-title {
+          .hero-title {
+            font-size: 72px;
             font-weight: 900;
-            color:#0F172A;
-            font-size: 17px;
-            margin-bottom: 6px;
+            letter-spacing: -3px;
+            color: #FFFFFF;
+            line-height: 1.0;
+            margin: 0 0 22px 0;
+          }
+          .hero-title em {
+            font-style: normal;
+            color: #5BA3E8;
+          }
+          .hero-sub {
+            font-size: 19px;
+            color: rgba(255,255,255,0.60);
+            line-height: 1.70;
+            max-width: 600px;
+            margin: 0 auto 38px auto;
+            font-weight: 400;
           }
 
-          .home-card-text {
-            color: rgba(15,23,42,0.68);
-            font-size: 15px;
+          /* ── STATS ROW ── */
+          .stats-row {
+            display: inline-flex;
+            align-items: center;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 56px;
+          }
+          .stat-cell {
+            padding: 18px 32px;
+            text-align: center;
+            border-right: 1px solid rgba(255,255,255,0.08);
+          }
+          .stat-cell:last-child { border-right: none; }
+          .stat-num {
+            font-size: 26px;
+            font-weight: 900;
+            color: #FFFFFF;
+            letter-spacing: -0.5px;
+            line-height: 1.1;
+          }
+          .stat-label {
+            font-size: 10.5px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.40);
+            text-transform: uppercase;
+            letter-spacing: 0.09em;
+            margin-top: 4px;
+          }
+
+          /* ── FEATURE CARDS ── */
+          .feat-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 14px;
+            padding: 24px;
+            height: 100%;
+            transition: background 0.20s ease, border-color 0.20s ease, transform 0.20s ease;
+            margin-bottom: 14px;
+          }
+          .feat-card:hover {
+            background: rgba(255,255,255,0.09);
+            border-color: rgba(91,163,232,0.35);
+            transform: translateY(-3px);
+          }
+          .feat-icon {
+            width: 38px; height: 38px;
+            border-radius: 10px;
+            background: rgba(30,95,171,0.35);
+            border: 1px solid rgba(91,163,232,0.25);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 17px;
+            margin-bottom: 16px;
+            color: #5BA3E8;
+          }
+          .feat-title {
+            font-weight: 800;
+            font-size: 14.5px;
+            color: #FFFFFF;
+            letter-spacing: -0.2px;
+            margin-bottom: 8px;
+          }
+          .feat-text {
+            font-size: 13px;
+            color: rgba(255,255,255,0.50);
             line-height: 1.65;
           }
-          .home-steps {
-            margin-top: 14px;
-            display:grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap:10px;
+
+          /* ── SECTION DIVIDER ── */
+          .section-divider {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 48px 0 0 0;
           }
-          .home-step {
-            background: rgba(15,23,42,0.04);
-            border: 1px solid rgba(15,23,42,0.08);
-            border-radius: 12px;
-            padding: 10px 12px;
+          .section-divider-line { flex: 1; height: 1px; background: rgba(255,255,255,0.10); }
+          .section-divider-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: rgba(255,255,255,0.28);
+            white-space: nowrap;
+          }
+
+          /* ── FORM CARD ── */
+          .form-card {
+            background: #FFFFFF;
+            border-radius: 16px;
+            padding: 32px 32px 8px 32px;
+            margin-top: 24px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+          }
+          .form-card-title {
+            font-size: 21px;
+            font-weight: 900;
+            color: #0B1830;
+            letter-spacing: -0.5px;
+            margin-bottom: 5px;
+          }
+          .form-card-sub {
             font-size: 13px;
-            font-weight: 800;
-            color:#0F172A;
+            color: rgba(11,24,48,0.48);
+            margin-bottom: 0;
+            line-height: 1.55;
+          }
+
+          /* ── FORM CARD: WHITE ON DARK BACKGROUND ── */
+          [data-testid="stForm"] {
+            background: #FFFFFF !important;
+            border-radius: 8px !important;
+            padding: 32px 32px 24px 32px !important;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.35) !important;
+            margin-top: 20px !important;
+            border: none !important;
+          }
+          /* All text inside form = navy */
+          [data-testid="stForm"] label,
+          [data-testid="stForm"] p,
+          [data-testid="stForm"] span,
+          [data-testid="stForm"] div,
+          [data-testid="stForm"] h3,
+          [data-testid="stForm"] h4 {
+            color: #0B1830 !important;
+            font-size: 15px !important;
+          }
+          [data-testid="stForm"] h3 { font-size: 20px !important; font-weight: 900 !important; }
+          [data-testid="stForm"] h4 { font-size: 17px !important; font-weight: 800 !important; }
+          [data-testid="stForm"] input { color: #0B1830 !important; font-size: 15px !important; }
+          /* Select boxes in form */
+          [data-testid="stForm"] [data-testid="stSelectbox"] > div,
+          [data-testid="stForm"] [data-testid="stSelectbox"] > div * {
+            color: #0B1830 !important;
+            background: #FFFFFF !important;
+          }
+          /* Caption text */
+          [data-testid="stForm"] [data-testid="stCaptionContainer"] p {
+            color: rgba(11,24,48,0.50) !important;
+            font-size: 13px !important;
+          }
+          /* The "Assessment starten" button after the form — white on dark */
+          [data-testid="stMainBlockContainer"] > div > [data-testid="stVerticalBlock"] > div:last-child div[data-testid="stButton"] > button[kind="primary"] {
+            font-size: 18px !important;
+            padding: 16px 32px !important;
+            font-weight: 800 !important;
           }
         </style>
         """
@@ -981,105 +1303,48 @@ def render_welcome():
     )
 
     st.markdown(
-        textwrap.dedent(
-            """
-          <div class="home-shell">
-          <div class="home-row">
-            <div class="home-hero">
-            <div class="home-title">Circulara</div>
-            <div class="home-subtitle">
-              Dein virtueller Assistent zur Bewertung der <b>Zirkularitätsreife</b> deines Produktes.
+        """
+        <div class="hero-wrap">
+          <div class="hero-eyebrow">Unity Consulting &amp; Innovation &nbsp;·&nbsp; Circularity Assessment</div>
+          <div class="hero-title">Ihre Herausforderungen –<br><em>unsere Lösungen.</em></div>
+          <div class="hero-sub">
+            Bewerten Sie die Zirkularitätsreife Ihres Produkts strukturiert,
+            gewichtet und mit konkreten Handlungsempfehlungen für Stakeholder.
+          </div>
+          <div style="display:flex;justify-content:center;">
+            <div class="stats-row">
+              <div class="stat-cell">
+                <div class="stat-num">5</div>
+                <div class="stat-label">Dimensionen</div>
+              </div>
+              <div class="stat-cell">
+                <div class="stat-num">25+</div>
+                <div class="stat-label">Indikatoren</div>
+              </div>
+              <div class="stat-cell">
+                <div class="stat-num">60+</div>
+                <div class="stat-label">Leitfragen</div>
+              </div>
+              <div class="stat-cell">
+                <div class="stat-num">PDF</div>
+                <div class="stat-label">Export</div>
+              </div>
             </div>
-
           </div>
         </div>
-        </div>
-        """
-        ),
+        """,
         unsafe_allow_html=True,
     )
 
-    st.markdown("<div class='home-shell'>", unsafe_allow_html=True)
-    st.markdown("<div class='home-cards'>", unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3, gap="medium")
-    with c1:
-        st.markdown(
-            """
-            <div class="home-card">
-              <div class="home-card-title">Einfache Bedienung</div>
-              <div class="home-card-text">
-                Beantworte Leitfragen pro Indikator. Keine Setup-Hürden.
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c2:
-        st.markdown(
-            """
-            <div class="home-card">
-              <div class="home-card-title">Klare Visualisierung</div>
-              <div class="home-card-text">
-                Radar & Detailanalysen machen Stärken/Schwächen sofort sichtbar.
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c3:
-        st.markdown(
-            """
-            <div class="home-card">
-              <div class="home-card-title">Konkrete Ableitung</div>
-              <div class="home-card-text">
-                Identifiziere Top-Verbesserungsfelder und exportiere einen Report für Stakeholder.
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    c4, c5, c6 = st.columns(3, gap="medium")
-    with c4:
-        st.markdown(
-            """
-            <div class="home-card">
-              <div class="home-card-title">Gewichtete Bewertung</div>
-              <div class="home-card-text">
-                Passe Dimensionen an – der Gesamtscore wird automatisch gewichtet berechnet.
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c5:
-        st.markdown(
-            """
-            <div class="home-card">
-              <div class="home-card-title">Detailtiefe</div>
-              <div class="home-card-text">
-                Ergebnisse bis auf Leitfragen-Ebene für Auditierbarkeit und Vergleich.
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c6:
-        st.markdown(
-            """
-            <div class="home-card">
-              <div class="home-card-title">Sofort nutzbar</div>
-              <div class="home-card-text">
-                Keine Integration nötig – direkt starten und Ergebnisse sichern.
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("### Pflichtangaben vor dem Assessment")
     st.markdown(
-        "Bitte beantworten Sie die folgenden Fragen vollständig. Erst danach können Sie das Tool verlassen und mit dem Assessment starten."
+        """
+        <div class="section-divider">
+          <div class="section-divider-line"></div>
+          <div class="section-divider-label">Schritt 1 von 2 &nbsp;·&nbsp; Unternehmensprofil</div>
+          <div class="section-divider-line"></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     themes = list(CIRCULAR_MODEL.keys())
@@ -1150,14 +1415,47 @@ def render_welcome():
             st.session_state.intake_completed = True
             st.success("Pflichtangaben gespeichert. Die vorgeschlagenen Gewichtungen wurden in die Einstellungen übernommen.")
 
+    st.markdown(
+        """<style>
+        /* Assessment starten CTA — navy bg, white text, prominent */
+        [class*="st-key-cta-start"] button,
+        [class*="st-key-cta_start"] button {
+          background: #0B1830 !important;
+          color: #FFFFFF !important;
+          border: none !important;
+          font-size: 18px !important;
+          font-weight: 900 !important;
+          padding: 16px 32px !important;
+          border-radius: 8px !important;
+          box-shadow: 0 4px 20px rgba(11,24,48,0.35) !important;
+          letter-spacing: -0.3px !important;
+          margin-top: 12px !important;
+        }
+        [class*="st-key-cta-start"] button:hover,
+        [class*="st-key-cta_start"] button:hover {
+          background: #1A3A6B !important;
+          box-shadow: 0 8px 28px rgba(11,24,48,0.40) !important;
+          transform: translateY(-2px) !important;
+        }
+        [class*="st-key-cta-start"] button p,
+        [class*="st-key-cta-start"] button span,
+        [class*="st-key-cta-start"] button *,
+        [class*="st-key-cta_start"] button p,
+        [class*="st-key-cta_start"] button span,
+        [class*="st-key-cta_start"] button * {
+          color: #FFFFFF !important;
+        }
+        </style>""",
+        unsafe_allow_html=True,
+    )
     st.button(
-        "Assessment starten",
+        "Assessment starten →",
+        key="cta_start",
         use_container_width=True,
         type="primary",
         on_click=_start_assessment,
         disabled=not _is_intake_complete(),
     )
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ============================================================================
@@ -1233,11 +1531,11 @@ def render_assessment():
     with st.container(key="topbar"):
         st.markdown(
             f"""
-            <div class="topbar-inner">
-              <div class="topbar-title">Zirkularitäts-Assessment Status</div>
-              <div class="topbar-sub">Aktuell: <b>{current_theme}</b> • {answered_count} von {total_questions} Fragen</div>
-              <div style="margin-top:8px;" class="topbar-rail">
-                <div class="topbar-fill" style="--p:{pct}%;"></div>
+            <div class="topbar-inner" style="padding:14px 20px;">
+              <div style="width:100%;">
+                <div class="topbar-rail">
+                  <div class="topbar-fill" style="--p:{pct}%;"></div>
+                </div>
               </div>
             </div>
             """,
@@ -1297,7 +1595,8 @@ def render_assessment():
 
             if active:
                 st.markdown(
-                    f"<style>[class*='st-key-dim-card-{idx}']{{outline:2px solid {ui['accent']};}}</style>",
+                    f"<style>[class*='st-key-dim-card-{idx}']{{border-left:3px solid #1A3A6B !important;"
+                    f"background:rgba(30,95,171,0.03) !important;}}</style>",
                     unsafe_allow_html=True,
                 )
             with st.container(key=f"dim-card-{idx}"):
@@ -1305,10 +1604,10 @@ def render_assessment():
                     f"""
                     <div class="dim-row">
                       <div class="dim-left">
-                        <div class="dim-icon" style="border-color:rgba(15,23,42,0.08);">{icon_map.get(theme, "")}</div>
+                        <div class="dim-icon">{icon_map.get(theme, "")}</div>
                         <div>
                           <p class="dim-title">{theme}</p>
-                          <div class="dim-meta">{q_count} Fragen</div>
+                          <div class="dim-meta">{q_count} Leitfragen</div>
                         </div>
                       </div>
                     </div>
@@ -1316,15 +1615,14 @@ def render_assessment():
                     """,
                     unsafe_allow_html=True,
                 )
-                st.markdown("<div class='dim-arrow-in'>", unsafe_allow_html=True)
-                st.button(
-                    "Dimension öffnen",
-                    key=f"arrow_theme_{idx}",
-                    use_container_width=True,
-                    on_click=_open_dimension,
-                    args=(idx,),
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
+                with st.container(key=f"dim-btn-{idx}"):
+                    st.button(
+                        "Mehr erfahren →",
+                        key=f"arrow_theme_{idx}",
+                        use_container_width=False,
+                        on_click=_open_dimension,
+                        args=(idx,),
+                    )
 
     # ---------------- RIGHT: INDICATORS TOP + QUESTIONS ----------------
     with right:
@@ -1355,7 +1653,12 @@ def render_assessment():
                 is_active = i == current_idx
                 if is_active:
                     st.markdown(
-                        f"<style>[class*='st-key-indicator-btn-{i}'] button{{background:{THEME_UI[current_theme]['pill']} !important; border-color:{THEME_UI[current_theme]['accent']} !important; color:#0B1220 !important; font-weight:900 !important;}}</style>",
+                        f"<style>[class*='st-key-indicator-btn-{i}'] button{{"
+                        f"background:rgba(30,95,171,0.07) !important;"
+                        f"border-color:#1A3A6B !important;"
+                        f"border-left-width:3px !important;"
+                        f"color:#0B1830 !important;"
+                        f"font-weight:800 !important;}}</style>",
                         unsafe_allow_html=True,
                     )
                 with st.container(key=f"indicator-btn-{i}"):
@@ -1666,20 +1969,36 @@ def render_results():
             )
             st.markdown(
                 f"""
-            <div style='padding: 20px; background: #ffffff; border-radius: 16px;
-                        border: 1px solid rgba(15,23,42,0.08); box-shadow: 0 10px 28px rgba(15,23,42,0.06);
-                        text-align: center;'>
-                <h4 style='margin-top: 0; color: #0F172A;'>Reifegrad</h4>
-                <div style='font-size: 3em; font-weight: 900; color: #0F172A; margin: 10px 0;'>{level['emoji']}</div>
-                <p style='margin: 5px 0; font-size: 1.4em; font-weight: 800;'>{level['name']} ({level.get('label', '')})</p>
-                <p style='margin: 5px 0; color: rgba(15,23,42,0.65);'>{level['description']}</p>
-                <hr style='margin: 10px 0; border:none; border-top:1px solid rgba(15,23,42,0.10);'>
-                <p style='margin: 5px 0; font-size: 1em;'><strong>Gewichteter Score:</strong> {total_score:.2f}/5.0</p>
-                <p style='margin: 5px 0; font-size: 1em;'><strong>Gewichteter Prozentwert:</strong> {total_01*100:.0f}%</p>
-                <hr style='margin: 10px 0; border:none; border-top:1px dashed rgba(15,23,42,0.12);'>
-                <div style='text-align:left; font-size:0.92em; color: rgba(15,23,42,0.8);'>
-                  <strong>Reifegrad-Skala</strong><br/>{scale_html}
+            <div style='padding:28px 24px; background:#FFFFFF; border-radius:14px;
+                        border:1px solid rgba(0,0,0,0.07); box-shadow:0 2px 12px rgba(0,0,0,0.05);
+                        text-align:center;'>
+              <div style='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.10em;
+                          color:rgba(10,10,10,0.35);margin-bottom:14px;'>Reifegrad</div>
+              <div style='font-size:2.8em;margin:0 0 10px 0;'>{level['emoji']}</div>
+              <div style='font-size:22px;font-weight:900;color:#0A0A0A;letter-spacing:-0.5px;margin-bottom:6px;'>
+                {level['name']} <span style="font-weight:500;color:rgba(10,10,10,0.45);">({level.get('label', '')})</span>
+              </div>
+              <div style='font-size:13px;color:rgba(10,10,10,0.52);line-height:1.6;max-width:320px;margin:0 auto 18px auto;'>
+                {level['description']}
+              </div>
+              <div style='display:flex;justify-content:center;gap:24px;
+                          padding:14px 24px;background:#F4F6FB;border-radius:10px;margin-bottom:18px;'>
+                <div style='text-align:center;'>
+                  <div style='font-size:22px;font-weight:900;color:#1A3A6B;letter-spacing:-0.5px;'>{total_score:.2f}<span style="font-size:14px;color:rgba(10,10,10,0.4);font-weight:600;">/5.0</span></div>
+                  <div style='font-size:11px;font-weight:600;color:rgba(10,10,10,0.38);text-transform:uppercase;letter-spacing:0.07em;margin-top:3px;'>Score</div>
                 </div>
+                <div style='width:1px;background:rgba(0,0,0,0.08);'></div>
+                <div style='text-align:center;'>
+                  <div style='font-size:22px;font-weight:900;color:#1A3A6B;letter-spacing:-0.5px;'>{total_01*100:.0f}<span style="font-size:14px;color:rgba(10,10,10,0.4);font-weight:600;">%</span></div>
+                  <div style='font-size:11px;font-weight:600;color:rgba(10,10,10,0.38);text-transform:uppercase;letter-spacing:0.07em;margin-top:3px;'>Prozentwert</div>
+                </div>
+              </div>
+              <div style='text-align:left;font-size:12px;color:rgba(10,10,10,0.55);line-height:1.7;
+                          border-top:1px solid rgba(0,0,0,0.07);padding-top:14px;'>
+                <div style='font-weight:700;color:rgba(10,10,10,0.35);font-size:10.5px;text-transform:uppercase;
+                            letter-spacing:0.09em;margin-bottom:8px;'>Reifegrad-Skala</div>
+                {scale_html}
+              </div>
             </div>
             """,
                 unsafe_allow_html=True,
@@ -1859,9 +2178,9 @@ def render_results():
         )
         if not score_counts.empty:
             if q_theme != "Alle":
-                scale = ["#F1F5F9", theme_colors.get(q_theme, "#B7791F")]
+                scale = ["#E8F0FE", theme_colors.get(q_theme, "#1A3A6B")]
             else:
-                scale = ["#FFF6E8", "#B7791F"]
+                scale = ["#E8F0FE", "#1A3A6B"]
             dist_chart = px.bar(
                 score_counts,
                 x="Score",
@@ -1918,6 +2237,29 @@ def render_results():
         st.markdown("### Handlungsempfehlungen")
         st.caption("Angezeigt werden nur Indikatoren mit einer Einzelbewertung unter 50 %.")
 
+        llm_ok = llm.is_available()
+        if llm_ok:
+            st.markdown(
+                '<div style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;'
+                'background:#E8F5E9;border:1px solid #66BB6A;border-radius:999px;'
+                'font-size:12px;font-weight:700;color:#2E7D32;margin-bottom:12px;">'
+                '<span style="width:8px;height:8px;background:#2E7D32;border-radius:50%;"></span>'
+                f'KI-Berater verbunden · {llm.DEFAULT_MODEL}</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.warning(
+                "Lokales LLM (Ollama) ist nicht erreichbar. "
+                "Starte Ollama mit `ollama serve` und stelle sicher, dass das Modell "
+                f"`{llm.DEFAULT_MODEL}` verfügbar ist (`ollama pull {llm.DEFAULT_MODEL}`). "
+                "Die statischen Empfehlungen aus Anhang III bleiben verfügbar."
+            )
+
+        # Per-indicator state:
+        # { measures: [{titel, kurz}], selected_idx: int|None, history: [...], generating_initial: bool }
+        if "llm_chats" not in st.session_state:
+            st.session_state.llm_chats = {}
+
         if recommendation_df.empty:
             st.success("Aktuell liegt kein Indikator unter 50 %. Es werden daher keine Handlungsempfehlungen angezeigt.")
         else:
@@ -1927,11 +2269,16 @@ def render_results():
                 if not recommendation_text:
                     st.warning(f"Für {row.Indikator} wurde in Anhang III keine Handlungsempfehlung gefunden.")
                     continue
+
+                indicator_key = f"{row.Thema}::{row.Indikator}"
+                safe_key = re.sub(r"[^A-Za-z0-9_]+", "_", indicator_key)
+                theme_color = theme_colors.get(row.Thema, '#0F172A')
+
                 st.markdown(
                     f"""
-                    <div style="margin-bottom:14px; padding:18px; background:#ffffff; border-radius:16px;
-                                border:1px solid rgba(15,23,42,0.08); box-shadow:0 10px 24px rgba(15,23,42,0.05);">
-                        <div style="font-size:13px; font-weight:800; color:{theme_colors.get(row.Thema, '#0F172A')}; text-transform:uppercase; letter-spacing:0.03em;">
+                    <div style="margin-bottom:0; padding:18px 18px 12px 18px; background:#ffffff; border-radius:16px 16px 0 0;
+                                border:1px solid rgba(15,23,42,0.08); border-bottom:none;">
+                        <div style="font-size:13px; font-weight:800; color:{theme_color}; text-transform:uppercase; letter-spacing:0.03em;">
                             {html.escape(row.Thema)}
                         </div>
                         <div style="margin-top:4px; font-size:18px; font-weight:900; color:#0F172A;">
@@ -1940,11 +2287,186 @@ def render_results():
                         <div style="margin:6px 0 10px 0; color:rgba(15,23,42,0.62); font-weight:700;">
                             Einzelbewertung: {score_pct} %
                         </div>
-                        <div style="color:#334155; line-height:1.6;">{html.escape(recommendation_text)}</div>
+                        <div style="color:#334155; line-height:1.6;"><strong>Standard (Anhang III):</strong><br>{html.escape(recommendation_text)}</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
+
+                with st.container():
+                    st.markdown(
+                        '<div style="padding:6px 18px 18px 18px; background:#ffffff; border-radius:0 0 16px 16px;'
+                        'border:1px solid rgba(15,23,42,0.08); border-top:none;'
+                        'box-shadow:0 10px 24px rgba(15,23,42,0.05); margin-bottom:14px;">',
+                        unsafe_allow_html=True,
+                    )
+
+                    with st.expander("KI-Berater: Maßnahmen erarbeiten", expanded=False):
+                        chat = st.session_state.llm_chats.setdefault(
+                            indicator_key,
+                            {"measures": [], "selected_idx": None, "history": []},
+                        )
+
+                        ctx = dict(
+                            product=st.session_state.get("product_name") or "",
+                            company=st.session_state.get("company_name") or "",
+                            sector=st.session_state.get("sector") or "",
+                            theme=row.Thema,
+                            indicator=row.Indikator,
+                            score_pct=score_pct,
+                            base_recommendation=recommendation_text,
+                        )
+
+                        # ── PHASE 1: generate measure list ────────────────
+                        if not chat["measures"]:
+                            st.caption(
+                                "Der KI-Berater schlägt 4–6 konkrete Maßnahmen vor. "
+                                "Anschließend kannst du eine auswählen und gemeinsam die Umsetzung erarbeiten."
+                            )
+                            if st.button(
+                                "Maßnahmen-Vorschläge generieren",
+                                key=f"gen_measures_{safe_key}",
+                                type="primary",
+                                disabled=not llm_ok,
+                                use_container_width=True,
+                            ):
+                                with st.spinner("KI-Berater erarbeitet Maßnahmen…"):
+                                    try:
+                                        raw = llm.query_ollama(
+                                            llm.build_measures_messages(**ctx),
+                                            json_mode=True,
+                                        )
+                                        measures = llm.parse_measures(raw)
+                                    except Exception as e:
+                                        st.error(f"LLM-Fehler: {e}")
+                                        measures = []
+                                if measures:
+                                    chat["measures"] = measures
+                                    st.rerun()
+                                else:
+                                    st.error("Konnte keine Maßnahmen extrahieren. Bitte erneut versuchen.")
+
+                        # ── PHASE 2: show measure cards & detail ──────────
+                        else:
+                            col_back, col_reset = st.columns([3, 1])
+                            with col_back:
+                                if chat["selected_idx"] is not None:
+                                    if st.button(
+                                        "← Andere Maßnahme wählen",
+                                        key=f"back_{safe_key}",
+                                        use_container_width=True,
+                                    ):
+                                        chat["selected_idx"] = None
+                                        chat["history"] = []
+                                        st.rerun()
+                            with col_reset:
+                                if st.button(
+                                    "Zurücksetzen",
+                                    key=f"reset_{safe_key}",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state.llm_chats[indicator_key] = {
+                                        "measures": [], "selected_idx": None, "history": []
+                                    }
+                                    st.rerun()
+
+                            if chat["selected_idx"] is None:
+                                # Show measure list
+                                st.markdown("**Vorgeschlagene Maßnahmen — wähle eine zur vertieften Beratung:**")
+                                for i, m in enumerate(chat["measures"]):
+                                    st.markdown(
+                                        f'<div style="padding:10px 14px; margin:6px 0; background:#F4F6FB; '
+                                        f'border-left:3px solid {theme_color}; border-radius:6px;">'
+                                        f'<div style="font-weight:800; color:#0F172A; font-size:14.5px;">{html.escape(m["titel"])}</div>'
+                                        f'<div style="font-size:13px; color:#475569; margin-top:2px;">{html.escape(m.get("kurz", ""))}</div>'
+                                        f'</div>',
+                                        unsafe_allow_html=True,
+                                    )
+                                    if st.button(
+                                        f"Diese Maßnahme vertiefen →",
+                                        key=f"pick_{safe_key}_{i}",
+                                        use_container_width=True,
+                                    ):
+                                        chat["selected_idx"] = i
+                                        chat["history"] = []
+                                        # Trigger initial drilldown on next run via flag
+                                        chat["pending_drilldown"] = True
+                                        st.rerun()
+
+                            else:
+                                # Drilldown view for selected measure
+                                m = chat["measures"][chat["selected_idx"]]
+                                st.markdown(
+                                    f'<div style="padding:12px 16px; background:linear-gradient(135deg,{theme_color}15 0%,#F4F6FB 100%); '
+                                    f'border-left:4px solid {theme_color}; border-radius:6px; margin:8px 0 14px 0;">'
+                                    f'<div style="font-size:11px; font-weight:800; letter-spacing:0.08em; '
+                                    f'text-transform:uppercase; color:{theme_color};">Aktuelle Maßnahme</div>'
+                                    f'<div style="font-weight:900; color:#0F172A; font-size:16px; margin-top:2px;">{html.escape(m["titel"])}</div>'
+                                    f'<div style="font-size:13px; color:#475569; margin-top:2px;">{html.escape(m.get("kurz", ""))}</div>'
+                                    f'</div>',
+                                    unsafe_allow_html=True,
+                                )
+
+                                # Render history FIRST (avoids duplicate when streaming new content)
+                                for msg in chat["history"]:
+                                    with st.chat_message(msg["role"]):
+                                        st.markdown(msg["content"])
+
+                                # Initial drilldown on first entry
+                                if chat.get("pending_drilldown"):
+                                    chat["pending_drilldown"] = False
+                                    drill_msgs = llm.build_drilldown_messages(
+                                        **ctx,
+                                        measure_title=m["titel"],
+                                        measure_summary=m.get("kurz", ""),
+                                    )
+                                    with st.chat_message("assistant"):
+                                        placeholder = st.empty()
+                                        buffer = ""
+                                        try:
+                                            for piece in llm.stream_ollama(drill_msgs):
+                                                buffer += piece
+                                                placeholder.markdown(buffer + "▌")
+                                            placeholder.markdown(buffer)
+                                        except Exception as e:
+                                            st.error(f"LLM-Fehler: {e}")
+                                            buffer = ""
+                                    if buffer:
+                                        chat["history"].append({"role": "assistant", "content": buffer})
+
+                                # Free chat input
+                                if llm_ok and chat["history"]:
+                                    user_input = st.chat_input(
+                                        "Nachfrage stellen (z. B. 'Was tun wenn Schritt 2 nicht klappt?')",
+                                        key=f"chat_{safe_key}",
+                                    )
+                                    if user_input:
+                                        with st.chat_message("user"):
+                                            st.markdown(user_input)
+                                        chat["history"].append({"role": "user", "content": user_input})
+
+                                        followup_msgs = llm.build_followup_messages(
+                                            **ctx,
+                                            measure_title=m["titel"],
+                                            measure_summary=m.get("kurz", ""),
+                                            history=chat["history"][:-1],
+                                            user_question=user_input,
+                                        )
+                                        with st.chat_message("assistant"):
+                                            placeholder = st.empty()
+                                            buffer = ""
+                                            try:
+                                                for piece in llm.stream_ollama(followup_msgs):
+                                                    buffer += piece
+                                                    placeholder.markdown(buffer + "▌")
+                                                placeholder.markdown(buffer)
+                                            except Exception as e:
+                                                st.error(f"LLM-Fehler: {e}")
+                                                buffer = ""
+                                        if buffer:
+                                            chat["history"].append({"role": "assistant", "content": buffer})
+
+                    st.markdown("</div>", unsafe_allow_html=True)
 
     with tab_export:
         st.markdown("### Export & Speicherung")
@@ -1980,7 +2502,7 @@ def render_results():
                     st.download_button(
                         label="PDF herunterladen",
                         data=pdf_buffer.getvalue(),
-                        file_name=f"Circularity_Assessment_{datetime.now().strftime('%Y%m%d')}.pdf",
+                        file_name=f"Unity_Circularity_Assessment_{datetime.now().strftime('%Y%m%d')}.pdf",
                         mime="application/pdf",
                         use_container_width=True,
                     )
